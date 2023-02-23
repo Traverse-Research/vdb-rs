@@ -4,12 +4,19 @@ use std::io::{Seek, Read, SeekFrom};
 use std::error::Error;
 use byteorder::{ReadBytesExt, WriteBytesExt, BigEndian, LittleEndian};
 use std::ffi::{OsStr, OsString};
+use std::collections::HashMap;
 use bitvec::prelude::*;
+use half::f16;
+use half::vec::HalfBitsVecExt;
 
 #[derive(thiserror::Error, Debug)]
 enum ParseError {
     #[error("Magic bytes mismatched")]
     MagicMismatch,
+    #[error("Invalid cast")]
+    InvalidCast,
+    #[error("Unsupported compression")]
+    UnsupportedCompression,
     #[error("IoError")]
     IoError(#[from] std::io::Error),
 }
@@ -70,7 +77,7 @@ fn read_grid<R: Read + Seek>(reader: &mut R) -> Result<Grid, ParseError> {
     let end_pos = reader.read_u64::<LittleEndian>()?;
     dbg!(end_pos);
 
-    let compression = reader.read_u32::<LittleEndian>()?;
+    let compression : Compression = reader.read_u32::<LittleEndian>()?.try_into()?;
     dbg!(compression);
 
     let meta_data = read_metadata(reader)?;
@@ -84,8 +91,30 @@ fn read_grid<R: Read + Seek>(reader: &mut R) -> Result<Grid, ParseError> {
     let transform = read_transform(reader)?;
     dbg!(transform);
 
-    let tree = read_tree(reader)?;
-    dbg!(tree);
+    let tree = read_tree(reader, compression)?;
+    // dbg!(tree);
+    // for v in tree.root_nodes[0].mask.iter() {
+        
+    // }
+
+    for idx in tree.root_nodes[0].mask.iter_ones() {
+        let node_4 = read_node_header(reader, 4 /* 16 * 16 * 16 */, compression)?;
+
+        let mut root_str = String::new();
+
+        for (idx, v) in node_4.mask.iter().enumerate() {
+            if idx % 16 == 0 {
+                root_str += "\n";
+            }
+            
+            root_str += if *v {
+                "-"
+            } else {
+                " "
+            };
+        }
+        println!("{}", root_str);
+    }
 
     Ok(Grid {} )
 }
@@ -167,44 +196,98 @@ fn read_transform<R: Read + Seek>(reader: &mut R) -> Result<Map, ParseError> {
     })
 }
 
+#[derive(Debug)]
 struct NodeHeader {
     mask: BitVec<u64, Lsb0>,
     value_mask: BitVec<u64, Lsb0>,
-    data: Vec<u16>,
-    compression_mode: u8
+    data: Vec<f16>,
+    meta_data: u8,
+    log_2_dim: u32
 }
 
-fn read_node_header<R: Read + Seek>(reader: &mut R, log_2_dim: u32) -> Result<NodeHeader, ParseError> {
-    dbg!(log_2_dim);
-    let dim = (1 << log_2_dim) as usize;
-    let linear_dim = dim * dim * dim;
+#[derive(Debug)]
+struct Node3 {
+    buffer: Vec<f16>,
+    value_mask: BitVec<u64, Lsb0>,
+    origin: glam::IVec3
+}
+
+#[derive(Debug)]
+struct Node4 {
+    mask: BitVec<u64, Lsb0>,
+    value_mask: BitVec<u64, Lsb0>,
+    nodes: HashMap<u32, Node3>
+}
+
+#[derive(Debug)]
+struct Node5 {
+    mask: BitVec<u64, Lsb0>,
+    value_mask: BitVec<u64, Lsb0>,
+    nodes: HashMap<u32, Node4>
+}
+
+/*
+Interior node
+
+    UnionType mNodes[NUM_VALUES];
+    NodeMaskType mChildMask, mValueMask;
+    /// Global grid index coordinates (x,y,z) of the local origin of this node
+    Coord mOrigin;
+*/
+
+/*
+Leaf
+    /// Buffer containing the actual data values
+    Buffer mBuffer;
+    /// Bitmask that determines which voxels are active
+    NodeMaskType mValueMask;
+    /// Global grid index coordinates (x,y,z) of the local origin of this node
+    Coord mOrigin;
+*/
+
+fn read_compressed<R: Read + Seek>(reader: &mut R, log_2_dim: u32, compression: Compression, value_mask: &BitSlice<u64, Lsb0>) -> Result<Vec<half::f16>, ParseError> {
+    let linear_dim = (1 << (3 * log_2_dim)) as usize;
+
+    let data_size = match compression {
+        Compression::None => linear_dim,
+        Compression::ActiveMask => value_mask.count_ones(),
+        _ => return Err(ParseError::UnsupportedCompression)
+    };
+
+
+    let mut data = vec![0u16; data_size];
+    reader.read_u16_into::<LittleEndian>(data.as_mut_slice())?;
+
+    Ok(data.reinterpret_into())
+}
+
+fn read_node_header<R: Read + Seek>(reader: &mut R, log_2_dim: u32, compression: Compression) -> Result<NodeHeader, ParseError> {
+    let linear_dim = (1 << (3 * log_2_dim)) as usize;
     
     let mut mask = bitvec![u64, Lsb0; 0; linear_dim];
     let mut value_mask = bitvec![u64, Lsb0; 0; linear_dim];
     reader.read_u64_into::<LittleEndian>(mask.as_raw_mut_slice())?;
     reader.read_u64_into::<LittleEndian>(value_mask.as_raw_mut_slice())?;
+    let meta_data = reader.read_u8()?;
 
-    let data_size = if true { 
-        value_mask.count_ones()
-    } else {
-        linear_dim
-    };
-
-    let compression_mode = reader.read_u8()?;
-    dbg!(compression_mode);
-
-    let mut data = vec![0u16; data_size]; // half float
-    reader.read_u16_into::<LittleEndian>(data.as_mut_slice())?;
+    let data = vec![];//read_compressed(reader, log_2_dim, compression, value_mask.as_slice())?;
 
     Ok(NodeHeader {
         mask,
         value_mask,
         data,
-        compression_mode
+        meta_data,
+        log_2_dim
     })
 }
 
-fn read_tree<R: Read + Seek>(reader: &mut R) -> Result<(), ParseError> {
+#[derive(Debug)]
+struct Tree {
+    // origin: glam::IVec3
+    root_nodes: Vec<Node5>,
+}
+
+fn read_tree<R: Read + Seek>(reader: &mut R, compression: Compression) -> Result<Tree, ParseError> {
     let expect_one_unk0 = reader.read_u32::<LittleEndian>()?;
     dbg!(expect_one_unk0);
 
@@ -214,24 +297,92 @@ fn read_tree<R: Read + Seek>(reader: &mut R) -> Result<(), ParseError> {
     let number_of_tiles = reader.read_u32::<LittleEndian>()?;
     dbg!(number_of_tiles);
 
-    let number_of_5_nodes = reader.read_u32::<LittleEndian>()?;
-    dbg!(number_of_5_nodes);
+    let number_of_root_nodes = reader.read_u32::<LittleEndian>()?;
+    dbg!(number_of_root_nodes);
 
-    let origin = read_i_vec3(reader)?;
-    dbg!(origin);
+    let mut root_nodes = vec![];
 
-    let node_5_header = read_node_header(reader, 5 /* 32 * 32 * 32 */)?;
-    // dbg!(node_5_header);
+    for root_idx in 0..1 {
+        let origin = read_i_vec3(reader)?;
+        dbg!(origin);
 
-    for idx in node_5_header.mask.iter_ones() {
-        let node_4_header = read_node_header(reader, 4 /* 16 * 16 * 16 */)?;
-        for idx in node_4_header.mask.iter_ones() {
-            let mut data = vec![0u64; 8]; // mask
-            reader.read_u64_into::<LittleEndian>(data.as_mut_slice())?;
+        let node_5 = read_node_header(reader, 5 /* 32 * 32 * 32 */, compression)?;
+        let mut child_5 = HashMap::default();
+
+        for idx in node_5.mask.iter_ones() {
+            let node_4 = read_node_header(reader, 4 /* 16 * 16 * 16 */, compression)?;
+            let mut child_4 = HashMap::default();
+
+            for idx in node_4.mask.iter_ones() {
+                let mut value_mask = bitvec![u64, Lsb0; 0; 8];
+                reader.read_u64_into::<LittleEndian>(value_mask.as_raw_mut_slice())?;
+            
+                child_4.insert(idx as u32, Node3 {
+                    buffer: vec![],
+                    value_mask,
+                    origin: Default::default()
+                });
+            }
+
+            child_5.insert(idx as u32, Node4 {
+                mask: node_4.mask,
+                value_mask: node_4.value_mask,
+                nodes: child_4
+            });
         }
+
+        for idx in node_5.mask.iter_ones() {
+            let mut node_4 = child_5.get_mut(&(idx as u32)).unwrap();
+
+            for idx in node_4.mask.iter_ones() {
+                let mut node_3 = node_4.nodes.get_mut(&(idx as u32)).unwrap();
+
+                let mut mask = bitvec![u64, Lsb0; 0; 8];
+                reader.read_u64_into::<LittleEndian>(mask.as_raw_mut_slice())?;
+
+                let meta_data = reader.read_u8()?;
+                // assert_eq!(meta_data, 6);
+                // dbg!(meta_data);
+
+                let data = read_compressed(reader, 3, compression, node_4.value_mask.as_slice())?;
+
+                node_3.buffer = data;
+            }
+        }
+
+        root_nodes.push(Node5 {
+            mask: node_5.mask,
+            value_mask: node_5.value_mask,
+            nodes: child_5
+        });
     }
 
-    Ok(())
+    Ok(Tree {
+        root_nodes,
+        // origin
+    })
+}
+
+#[derive(Debug, Copy, Clone)]
+enum Compression {
+    None,
+    Zip,
+    ActiveMask,
+    Blosc
+}
+
+impl TryFrom<u32> for Compression {
+    type Error = ParseError;
+
+    fn try_from(v: u32) -> Result<Compression, ParseError> {
+        Ok(match v {
+            0 => Compression::None,
+            1 => Compression::Zip,
+            2 => Compression::ActiveMask,
+            3 => Compression::Blosc,
+            _ => return Err(ParseError::InvalidCast)
+        })
+    }
 }
 
 fn read_vdb<R: Read + Seek>(reader: &mut R) -> Result<(), ParseError> {
@@ -267,7 +418,8 @@ fn read_vdb<R: Read + Seek>(reader: &mut R) -> Result<(), ParseError> {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let f = File::open("C:/Users/Jasper/Downloads/armadillo.vdb-1.0.0/armadillo.vdb")?;
+    // let f = File::open("C:/Users/Jasper/Downloads/armadillo.vdb-1.0.0/armadillo.vdb")?;
+    let f = File::open("C:/Users/Jasper/Downloads/cube.vdb-1.0.0/cube.vdb")?;
     let mut reader = BufReader::new(f);
 
     read_vdb(&mut reader)?;

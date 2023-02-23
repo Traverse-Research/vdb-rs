@@ -4,6 +4,7 @@ use std::io::{Seek, Read, SeekFrom};
 use std::error::Error;
 use byteorder::{ReadBytesExt, WriteBytesExt, BigEndian, LittleEndian};
 use std::ffi::{OsStr, OsString};
+use bitvec::prelude::*;
 
 #[derive(thiserror::Error, Debug)]
 enum ParseError {
@@ -167,8 +168,8 @@ fn read_transform<R: Read + Seek>(reader: &mut R) -> Result<Map, ParseError> {
 }
 
 struct NodeHeader {
-    mask: Vec<u64>,
-    value_mask: Vec<u64>,
+    mask: BitVec<u64, Lsb0>,
+    value_mask: BitVec<u64, Lsb0>,
     data: Vec<u16>,
     compression_mode: u8
 }
@@ -177,15 +178,14 @@ fn read_node_header<R: Read + Seek>(reader: &mut R, log_2_dim: u32) -> Result<No
     dbg!(log_2_dim);
     let dim = (1 << log_2_dim) as usize;
     let linear_dim = dim * dim * dim;
-    let linear_bit_count = linear_dim / 64; // bits stored as u64
-
-    let mut mask = vec![0u64; linear_bit_count];
-    let mut value_mask = vec![0u64; linear_bit_count];
-    reader.read_u64_into::<LittleEndian>(mask.as_mut_slice())?;
-    reader.read_u64_into::<LittleEndian>(value_mask.as_mut_slice())?;
+    
+    let mut mask = bitvec![u64, Lsb0; 0; linear_dim];
+    let mut value_mask = bitvec![u64, Lsb0; 0; linear_dim];
+    reader.read_u64_into::<LittleEndian>(mask.as_raw_mut_slice())?;
+    reader.read_u64_into::<LittleEndian>(value_mask.as_raw_mut_slice())?;
 
     let data_size = if true { 
-        value_mask.iter().map(|v| v.count_ones() as usize).sum()
+        value_mask.count_ones()
     } else {
         linear_dim
     };
@@ -223,26 +223,11 @@ fn read_tree<R: Read + Seek>(reader: &mut R) -> Result<(), ParseError> {
     let node_5_header = read_node_header(reader, 5 /* 32 * 32 * 32 */)?;
     // dbg!(node_5_header);
 
-    for (idx, word) in node_5_header.mask.iter().enumerate() {
-        let mut word = *word;
-        while word != 0 {
-            // let bit_index = idx as u32 * 64 + word.trailing_zeros();
-
-            let node_4_header = read_node_header(reader, 4 /* 16 * 16 * 16 */)?;
-            for (idx, word) in node_4_header.mask.iter().enumerate() {
-                let mut word = *word;
-                while word != 0 {
-                    // let bit_index = idx as u32 * 64 + word.trailing_zeros();
-
-                    
-                    let mut data = vec![0u64; 8]; // mask
-                    reader.read_u64_into::<LittleEndian>(data.as_mut_slice())?;
-
-                    word &= word - 1;
-                }
-            }
-
-            word &= word - 1;
+    for idx in node_5_header.mask.iter_ones() {
+        let node_4_header = read_node_header(reader, 4 /* 16 * 16 * 16 */)?;
+        for idx in node_4_header.mask.iter_ones() {
+            let mut data = vec![0u64; 8]; // mask
+            reader.read_u64_into::<LittleEndian>(data.as_mut_slice())?;
         }
     }
 

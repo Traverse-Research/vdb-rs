@@ -135,11 +135,6 @@ fn read_grid<R: Read + Seek, ValueTy: Pod + std::fmt::Debug>(
     }
     gd.meta_data = dbg!(read_metadata(reader)?);
 
-    // let library_version_major = reader.read_u32::<LittleEndian>()?;
-    // let library_version_minor = reader.read_u32::<LittleEndian>()?;
-    // dbg!(library_version_major);
-    // dbg!(library_version_minor);
-
     if header.file_version >= OPENVDB_FILE_VERSION_GRID_INSTANCING {
         let transform = read_transform(reader)?;
         dbg!(transform);
@@ -152,10 +147,6 @@ fn read_grid<R: Read + Seek, ValueTy: Pod + std::fmt::Debug>(
 }
 
 #[derive(Debug, Default)]
-// struct Metadata {
-//     name: String,
-//     value: MetadataValue,
-// }
 struct Metadata(HashMap<String, MetadataValue>);
 
 impl Metadata {
@@ -479,7 +470,7 @@ fn read_tree<R: Read + Seek, ValueTy: Pod + std::fmt::Debug>(
                 reader.read_u64_into::<LittleEndian>(value_mask.as_raw_mut_slice())?;
 
                 if header.file_version < OPENVDB_FILE_VERSION_NODE_MASK_COMPRESSION {
-                    let origin = read_i_vec3(reader)?;
+                    node_3.origin = read_i_vec3(reader)?;
                     let num_buffers = reader.read_u8()?;
                     assert_eq!(num_buffers, 1);
                 }

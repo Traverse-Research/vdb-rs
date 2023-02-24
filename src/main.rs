@@ -1,4 +1,6 @@
+use bitflags::bitflags;
 use bitvec::prelude::*;
+use bytemuck::{bytes_of_mut, cast_slice_mut, Pod};
 use byteorder::{BigEndian, LittleEndian, ReadBytesExt, WriteBytesExt};
 use half::f16;
 use half::vec::HalfBitsVecExt;
@@ -9,12 +11,29 @@ use std::fs::File;
 use std::io::BufReader;
 use std::io::{Read, Seek, SeekFrom};
 
+const OPENVDB_FILE_VERSION_ROOTNODE_MAP: u32 = 213;
+const OPENVDB_FILE_VERSION_INTERNALNODE_COMPRESSION: u32 = 214;
+const OPENVDB_FILE_VERSION_SIMPLIFIED_GRID_TYPENAME: u32 = 215;
+const OPENVDB_FILE_VERSION_GRID_INSTANCING: u32 = 216;
+const OPENVDB_FILE_VERSION_BOOL_LEAF_OPTIMIZATION: u32 = 217;
+const OPENVDB_FILE_VERSION_BOOST_UUID: u32 = 218;
+const OPENVDB_FILE_VERSION_NO_GRIDMAP: u32 = 219;
+const OPENVDB_FILE_VERSION_NEW_TRANSFORM: u32 = 219;
+const OPENVDB_FILE_VERSION_SELECTIVE_COMPRESSION: u32 = 220;
+const OPENVDB_FILE_VERSION_FLOAT_FRUSTUM_BBOX: u32 = 221;
+const OPENVDB_FILE_VERSION_NODE_MASK_COMPRESSION: u32 = 222;
+const OPENVDB_FILE_VERSION_BLOSC_COMPRESSION: u32 = 223;
+const OPENVDB_FILE_VERSION_POINT_INDEX_GRID: u32 = 223;
+const OPENVDB_FILE_VERSION_MULTIPASS_IO: u32 = 22;
+
 #[derive(thiserror::Error, Debug)]
 enum ParseError {
     #[error("Magic bytes mismatched")]
     MagicMismatch,
-    #[error("Invalid cast")]
-    InvalidCast,
+    #[error("Invalid compression")]
+    InvalidCompression,
+    #[error("Invalid node meta-data")]
+    InvalidNodeMetadata,
     #[error("Unsupported compression")]
     UnsupportedCompression,
     #[error("IoError")]
@@ -31,13 +50,13 @@ fn read_string<R: Read + Seek>(reader: &mut R, len: usize) -> Result<String, Par
 }
 
 fn read_name<R: Read + Seek>(reader: &mut R) -> Result<String, ParseError> {
-    let len = dbg!(reader.read_u32::<LittleEndian>()? as usize);
+    let len = reader.read_u32::<LittleEndian>()? as usize;
     let mut string = String::with_capacity(len);
     for _ in 0..len {
         let c = reader.read_u8()? as char;
         string.push(c);
     }
-    Ok(dbg!(string))
+    Ok(string)
 }
 
 fn read_d_vec3<R: Read + Seek>(reader: &mut R) -> Result<glam::DVec3, ParseError> {
@@ -55,81 +74,97 @@ fn read_i_vec3<R: Read + Seek>(reader: &mut R) -> Result<glam::IVec3, ParseError
     Ok(glam::IVec3::new(x, y, z))
 }
 
-struct Grid {}
+struct Grid<ValueTy> {
+    tree: Tree<ValueTy>,
+}
 
-fn read_grid<R: Read + Seek>(reader: &mut R) -> Result<Grid, ParseError> {
+#[derive(Debug)]
+struct GridDescriptor {
+    name: String,
+    grid_type: String,
+    instance_parent: String,
+    grid_pos: u64,
+    block_pos: u64,
+    end_pos: u64,
+    compression: Compression,
+    meta_data: Metadata,
+}
+
+impl GridDescriptor {
+    fn seek_to_grid<R: Read + Seek>(&self, reader: &mut R) {
+        reader.seek(SeekFrom::Start(self.grid_pos));
+    }
+}
+
+fn read_grid<R: Read + Seek, ValueTy: Pod + std::fmt::Debug>(
+    header: ArchiveHeader,
+    reader: &mut R,
+) -> Result<Grid<ValueTy>, ParseError> {
     let name = read_name(reader)?;
-    dbg!(name);
 
     let grid_type = read_name(reader)?;
-    dbg!(grid_type);
 
-    let instance_parent = reader.read_u32::<LittleEndian>()?;
-    dbg!(instance_parent);
+    // let instance_parent = reader.read_u32::<LittleEndian>()?;
+    let instance_parent = if header.file_version >= OPENVDB_FILE_VERSION_GRID_INSTANCING {
+        read_name(reader)?
+    } else {
+        todo!("instance_parent, file version: {}", header.file_version)
+    };
 
     // comment says "Grid descriptor stream position"
     let grid_pos = reader.read_u64::<LittleEndian>()?;
-    dbg!(grid_pos);
-
     let block_pos = reader.read_u64::<LittleEndian>()?;
-    dbg!(block_pos);
-
     let end_pos = reader.read_u64::<LittleEndian>()?;
-    dbg!(end_pos);
 
-    let compression: Compression = reader.read_u32::<LittleEndian>()?.try_into()?;
-    dbg!(compression);
+    let mut gd = GridDescriptor {
+        name,
+        grid_type,
+        instance_parent,
+        grid_pos,
+        block_pos,
+        end_pos,
+        compression: header.compression,
+        meta_data: Default::default(),
+    };
 
-    let meta_data = read_metadata(reader)?;
-    dbg!(meta_data);
+    dbg!(&gd);
+
+    gd.seek_to_grid(reader);
+    if header.file_version >= OPENVDB_FILE_VERSION_NODE_MASK_COMPRESSION {
+        gd.compression = reader.read_u32::<LittleEndian>()?.try_into()?;
+    }
+    gd.meta_data = dbg!(read_metadata(reader)?);
 
     // let library_version_major = reader.read_u32::<LittleEndian>()?;
     // let library_version_minor = reader.read_u32::<LittleEndian>()?;
     // dbg!(library_version_major);
     // dbg!(library_version_minor);
 
-    let transform = read_transform(reader)?;
-    dbg!(transform);
+    if header.file_version >= OPENVDB_FILE_VERSION_GRID_INSTANCING {
+        let transform = read_transform(reader)?;
+        dbg!(transform);
 
-    let tree = read_tree(reader, compression)?;
-    // dbg!(tree);
-    // for v in tree.root_nodes[0].mask.iter() {
-
-    // }
-
-    // for idx in tree.root_nodes[0].mask.iter_ones() {
-    //     let node_4 = read_node_header(reader, 4 /* 16 * 16 * 16 */, compression)?;
-
-    //     let mut root_str = String::new();
-
-    //     for (idx, v) in node_4.mask.iter().enumerate() {
-    //         if idx % 16 == 0 {
-    //             root_str += "\n";
-    //         }
-
-    //         if idx % (16 * 16) == 0 {
-    //             root_str += "\n";
-    //         }
-
-    //         root_str += if *v {
-    //             "-"
-    //         } else {
-    //             " "
-    //         };
-    //     }
-    //     println!("{}", root_str);
-    // }
-
-    Ok(Grid {})
+        let tree = read_tree(&header, &gd, reader)?;
+        Ok(Grid { tree })
+    } else {
+        todo!("Old file version not supported {}", header.file_version);
+    }
 }
 
-#[derive(Debug)]
-struct Metadata {
-    name: String,
-    value: MetadataValue,
+#[derive(Debug, Default)]
+// struct Metadata {
+//     name: String,
+//     value: MetadataValue,
+// }
+struct Metadata(HashMap<String, MetadataValue>);
+
+impl Metadata {
+    fn is_half_float(&self) -> bool {
+        self.0.get("is_saved_as_half_float") == Some(&MetadataValue::Bool(true))
+    }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 enum MetadataValue {
     String(String),
     Vec3i(glam::IVec3),
@@ -137,36 +172,35 @@ enum MetadataValue {
     Bool(bool),
 }
 
-fn read_metadata<R: Read + Seek>(reader: &mut R) -> Result<Vec<Metadata>, ParseError> {
+fn read_metadata<R: Read + Seek>(reader: &mut R) -> Result<Metadata, ParseError> {
     let meta_data_count = reader.read_u32::<LittleEndian>()?;
-    dbg!(meta_data_count);
+    let mut meta_data = Metadata::default();
 
-    let mut meta_data = Vec::with_capacity(meta_data_count as usize);
     for _ in 0..meta_data_count {
         let name = read_name(reader)?;
         let data_type = read_name(reader)?;
 
-        meta_data.push(Metadata {
-            name: dbg!(name),
-            value: match data_type.as_str() {
+        meta_data.0.insert(
+            name,
+            match data_type.as_str() {
                 "string" => MetadataValue::String(read_name(reader)?),
                 "bool" => {
                     let len = reader.read_i32::<LittleEndian>()?;
                     let val = reader.read_u8()?;
-                    dbg!(MetadataValue::Bool(val != 0))
+                    MetadataValue::Bool(val != 0)
                 }
                 "int64" => {
                     let len = reader.read_i32::<LittleEndian>()?;
                     let val = reader.read_i64::<LittleEndian>()?;
-                    dbg!(MetadataValue::I64(val))
+                    MetadataValue::I64(val)
                 }
                 "vec3i" => {
                     let len = reader.read_i32::<LittleEndian>()?;
-                    dbg!(MetadataValue::Vec3i(read_i_vec3(reader)?))
+                    MetadataValue::Vec3i(read_i_vec3(reader)?)
                 }
                 v => panic!("Invalid datatype {:?}", v),
             },
-        })
+        );
     }
 
     Ok(meta_data)
@@ -199,32 +233,32 @@ fn read_transform<R: Read + Seek>(reader: &mut R) -> Result<Map, ParseError> {
 }
 
 #[derive(Debug)]
-struct NodeHeader {
+struct NodeHeader<ValueTy> {
     child_mask: BitVec<u64, Lsb0>,
     value_mask: BitVec<u64, Lsb0>,
-    data: Vec<f16>,
+    data: Vec<ValueTy>,
     log_2_dim: u32,
 }
 
 #[derive(Debug)]
-struct Node3 {
-    buffer: Vec<f16>,
+struct Node3<ValueTy> {
+    buffer: Vec<ValueTy>,
     value_mask: BitVec<u64, Lsb0>,
     origin: glam::IVec3,
 }
 
 #[derive(Debug)]
-struct Node4 {
+struct Node4<ValueTy> {
     child_mask: BitVec<u64, Lsb0>,
     value_mask: BitVec<u64, Lsb0>,
-    nodes: HashMap<u32, Node3>,
+    nodes: HashMap<u32, Node3<ValueTy>>,
 }
 
 #[derive(Debug)]
-struct Node5 {
+struct Node5<ValueTy> {
     child_mask: BitVec<u64, Lsb0>,
     value_mask: BitVec<u64, Lsb0>,
-    nodes: HashMap<u32, Node4>,
+    nodes: HashMap<u32, Node4<ValueTy>>,
 }
 
 /*
@@ -246,28 +280,32 @@ Leaf
     Coord mOrigin;
 */
 
-fn read_compressed<R: Read + Seek>(
+fn read_compressed<R: Read + Seek, T: Pod>(
     reader: &mut R,
     log_2_dim: u32,
-    compression: Compression,
+    archive: &ArchiveHeader,
+    gd: &GridDescriptor,
+    num_values: usize,
     value_mask: &BitSlice<u64, Lsb0>,
-) -> Result<Vec<half::f16>, ParseError> {
-    let linear_dim = (1 << (3 * log_2_dim)) as usize;
-    let meta_data: NodeMetaData = reader.read_u8()?.try_into()?;
+) -> Result<Vec<T>, ParseError> {
+    let mut meta_data: NodeMetaData = NodeMetaData::NoMaskOrInactiveVals;
+    if archive.file_version >= OPENVDB_FILE_VERSION_NODE_MASK_COMPRESSION {
+        meta_data = reader.read_u8()?.try_into()?;
 
-    if meta_data == NodeMetaData::NoMaskAndOneInactiveVal
-        || meta_data == NodeMetaData::MaskAndOneInactiveVal
-        || meta_data == NodeMetaData::MaskAndTwoInactiveVals
-    {
-        todo!("Test this branch");
-        let inactive_val0 = reader.read_u32::<LittleEndian>()?;
+        if meta_data == NodeMetaData::NoMaskAndOneInactiveVal
+            || meta_data == NodeMetaData::MaskAndOneInactiveVal
+            || meta_data == NodeMetaData::MaskAndTwoInactiveVals
+        {
+            todo!("Test this branch");
+            let inactive_val0 = reader.read_u32::<LittleEndian>()?;
 
-        if meta_data == NodeMetaData::MaskAndTwoInactiveVals {
-            let inactive_val1 = reader.read_u32::<LittleEndian>()?;
+            if meta_data == NodeMetaData::MaskAndTwoInactiveVals {
+                let inactive_val1 = reader.read_u32::<LittleEndian>()?;
+            }
         }
     }
 
-    let mut selection_mask = bitvec![u64, Lsb0; 0; linear_dim];
+    let mut selection_mask = bitvec![u64, Lsb0; 0; num_values];
 
     if meta_data == NodeMetaData::MaskAndNoInactiveVals
         || meta_data == NodeMetaData::MaskAndOneInactiveVal
@@ -277,24 +315,46 @@ fn read_compressed<R: Read + Seek>(
         reader.read_u64_into::<LittleEndian>(selection_mask.as_raw_mut_slice())?;
     }
 
-    let data_size = match compression {
-        Compression::ActiveMask if meta_data != NodeMetaData::NoMaskAndAllVals => {
-            value_mask.count_ones()
-        }
-        _ => linear_dim,
+    let count = if gd.compression.contains(Compression::ACTIVE_MASK)
+        && meta_data != NodeMetaData::NoMaskAndAllVals
+        && archive.file_version >= OPENVDB_FILE_VERSION_NODE_MASK_COMPRESSION
+    {
+        value_mask.count_ones()
+    } else {
+        num_values
     };
 
-    let mut data = vec![0u16; data_size];
-    reader.read_u16_into::<LittleEndian>(data.as_mut_slice())?;
+    let data = if gd.compression.contains(Compression::ZIP) {
+        let num_zipped_bytes = reader.read_i64::<LittleEndian>()?;
+        if num_zipped_bytes < 0 {
+            let mut data = vec![T::zeroed(); (-num_zipped_bytes) as usize];
+            reader.read_exact(cast_slice_mut(&mut data))?;
+            data
+        } else {
+            let mut zipped_data = vec![0u8; num_zipped_bytes as usize];
+            reader.read_exact(&mut zipped_data)?;
 
-    Ok(data.reinterpret_into())
+            let mut zip_reader = flate2::read::ZlibDecoder::new(zipped_data.as_slice());
+            let mut data = vec![T::zeroed(); count];
+            zip_reader.read_exact(cast_slice_mut(&mut data))?;
+            data
+        }
+    } else {
+        let mut data = vec![T::zeroed(); count];
+
+        reader.read_exact(cast_slice_mut(&mut data))?;
+        data
+    };
+
+    Ok(data)
 }
 
-fn read_node_header<R: Read + Seek>(
+fn read_node_header<R: Read + Seek, ValueTy: Pod>(
     reader: &mut R,
     log_2_dim: u32,
-    compression: Compression,
-) -> Result<NodeHeader, ParseError> {
+    header: &ArchiveHeader,
+    gd: &GridDescriptor,
+) -> Result<NodeHeader<ValueTy>, ParseError> {
     let linear_dim = (1 << (3 * log_2_dim)) as usize;
 
     let mut child_mask = bitvec![u64, Lsb0; 0; linear_dim];
@@ -302,7 +362,20 @@ fn read_node_header<R: Read + Seek>(
     reader.read_u64_into::<LittleEndian>(child_mask.as_raw_mut_slice())?;
     reader.read_u64_into::<LittleEndian>(value_mask.as_raw_mut_slice())?;
 
-    let data = read_compressed(reader, log_2_dim, compression, value_mask.as_slice())?;
+    let linear_dim = if header.file_version < OPENVDB_FILE_VERSION_NODE_MASK_COMPRESSION {
+        child_mask.count_zeros()
+    } else {
+        (1 << (3 * log_2_dim)) as usize
+    };
+
+    let data = read_compressed(
+        reader,
+        log_2_dim,
+        header,
+        gd,
+        linear_dim,
+        value_mask.as_slice(),
+    )?;
 
     Ok(NodeHeader {
         child_mask,
@@ -313,16 +386,21 @@ fn read_node_header<R: Read + Seek>(
 }
 
 #[derive(Debug)]
-struct Tree {
+struct Tree<ValueTy> {
     // origin: glam::IVec3
-    root_nodes: Vec<Node5>,
+    root_nodes: Vec<Node5<ValueTy>>,
 }
 
-fn read_tree<R: Read + Seek>(reader: &mut R, compression: Compression) -> Result<Tree, ParseError> {
-    let expect_one_unk0 = reader.read_u32::<LittleEndian>()?;
-    dbg!(expect_one_unk0);
+fn read_tree<R: Read + Seek, ValueTy: Pod + std::fmt::Debug>(
+    header: &ArchiveHeader,
+    gd: &GridDescriptor,
+    reader: &mut R,
+) -> Result<Tree<ValueTy>, ParseError> {
+    let buffer_count = reader.read_u32::<LittleEndian>()?;
+    assert_eq!(buffer_count, 1, "Multi-buffer trees are not supported");
 
-    let root_node_background_value = reader.read_u32::<LittleEndian>()?;
+    let mut root_node_background_value = 0u32;
+    reader.read(bytes_of_mut(&mut root_node_background_value))?;
     dbg!(root_node_background_value);
 
     let number_of_tiles = reader.read_u32::<LittleEndian>()?;
@@ -345,11 +423,12 @@ fn read_tree<R: Read + Seek>(reader: &mut R, compression: Compression) -> Result
         let origin = read_i_vec3(reader)?;
         dbg!(origin);
 
-        let node_5 = read_node_header(reader, 5 /* 32 * 32 * 32 */, compression)?;
+        let node_5 = read_node_header::<_, ValueTy>(reader, 5 /* 32 * 32 * 32 */, header, gd)?;
         let mut child_5 = HashMap::default();
 
         for idx in node_5.child_mask.iter_ones() {
-            let node_4 = read_node_header(reader, 4 /* 16 * 16 * 16 */, compression)?;
+            let node_4 =
+                read_node_header::<_, ValueTy>(reader, 4 /* 16 * 16 * 16 */, header, gd)?;
             let mut child_4 = HashMap::default();
 
             for idx in node_4.child_mask.iter_ones() {
@@ -385,7 +464,7 @@ fn read_tree<R: Read + Seek>(reader: &mut R, compression: Compression) -> Result
         });
     }
 
-    println!("Reasding data");
+    println!("Reading data");
 
     for root_idx in 0..number_of_root_nodes {
         let node_5 = &mut root_nodes[root_idx as usize];
@@ -399,13 +478,21 @@ fn read_tree<R: Read + Seek>(reader: &mut R, compression: Compression) -> Result
                 let mut value_mask = bitvec![u64, Lsb0; 0; linear_dim];
                 reader.read_u64_into::<LittleEndian>(value_mask.as_raw_mut_slice())?;
 
-                // println!("{:?}", reader.stream_position());
-                let data = read_compressed(reader, 3, compression, value_mask.as_slice())?;
+                if header.file_version < OPENVDB_FILE_VERSION_NODE_MASK_COMPRESSION {
+                    let origin = read_i_vec3(reader)?;
+                    let num_buffers = reader.read_u8()?;
+                    assert_eq!(num_buffers, 1);
+                }
+
+                let data =
+                    read_compressed(reader, 3, header, gd, linear_dim, value_mask.as_slice())?;
 
                 node_3.buffer = data;
             }
         }
     }
+
+    println!("{:?}", reader.stream_position());
 
     Ok(Tree {
         root_nodes,
@@ -436,17 +523,19 @@ impl TryFrom<u8> for NodeMetaData {
             4 => Self::MaskAndOneInactiveVal,
             5 => Self::MaskAndTwoInactiveVals,
             6 => Self::NoMaskAndAllVals,
-            _ => return Err(ParseError::InvalidCast),
+            _ => return Err(ParseError::InvalidNodeMetadata),
         })
     }
 }
 
-#[derive(Debug, Copy, Clone)]
-enum Compression {
-    None,
-    Zip,
-    ActiveMask,
-    Blosc,
+bitflags! {
+    struct Compression: u32 {
+        const NONE = 0;
+        const ZIP = 0x1;
+        const ACTIVE_MASK = 0x2;
+        const BLOSC = 0x4;
+        const DEFAULT_COMPRESSION = Self::BLOSC.bits | Self::ACTIVE_MASK.bits;
+    }
 }
 
 impl TryFrom<u32> for Compression {
@@ -454,13 +543,25 @@ impl TryFrom<u32> for Compression {
 
     fn try_from(v: u32) -> Result<Compression, ParseError> {
         Ok(match v {
-            0 => Compression::None,
-            1 => Compression::Zip,
-            2 => Compression::ActiveMask,
-            3 => Compression::Blosc,
-            _ => return Err(ParseError::InvalidCast),
+            0 => Compression::NONE,
+            0x1 => Compression::ZIP,
+            0x2 => Compression::ACTIVE_MASK,
+            0x4 => Compression::BLOSC,
+            _ => return Err(ParseError::InvalidCompression),
         })
     }
+}
+
+#[derive(Debug)]
+struct ArchiveHeader {
+    file_version: u32,
+    library_version_major: u32,
+    library_version_minor: u32,
+    has_grid_offsets: bool,
+    compression: Compression,
+    guid: String,
+    meta_data: Metadata,
+    grid_count: u32,
 }
 
 fn read_vdb<R: Read + Seek>(reader: &mut R) -> Result<(), ParseError> {
@@ -470,33 +571,46 @@ fn read_vdb<R: Read + Seek>(reader: &mut R) -> Result<(), ParseError> {
     }
 
     let file_version = reader.read_u32::<LittleEndian>()?;
-    dbg!(file_version);
-
     let library_version_major = reader.read_u32::<LittleEndian>()?;
     let library_version_minor = reader.read_u32::<LittleEndian>()?;
-    dbg!(library_version_major);
-    dbg!(library_version_minor);
+    let has_grid_offsets = reader.read_u8()? == 1;
 
-    let grid_offsets = reader.read_u8()?;
-    dbg!(grid_offsets);
+    let compression = if file_version >= OPENVDB_FILE_VERSION_SELECTIVE_COMPRESSION
+        && file_version < OPENVDB_FILE_VERSION_NODE_MASK_COMPRESSION
+    {
+        (reader.read_u8()? as u32).try_into()?
+    } else {
+        Compression::DEFAULT_COMPRESSION
+    };
 
-    let guid = read_string(reader, 36)?;
-    dbg!(guid);
+    let guid = if file_version >= OPENVDB_FILE_VERSION_BOOST_UUID {
+        read_string(reader, 36)?
+    } else {
+        todo!("File version {}", file_version);
+    };
 
-    // jb-todo: proper meta-data parsing
     let meta_data = read_metadata(reader)?;
-    dbg!(meta_data);
-
     let grid_count = reader.read_u32::<LittleEndian>()?;
-    dbg!(grid_count);
 
-    let grid = read_grid(reader)?;
+    let header = ArchiveHeader {
+        file_version,
+        library_version_major,
+        library_version_minor,
+        has_grid_offsets,
+        compression,
+        guid,
+        meta_data,
+        grid_count,
+    };
+
+    let grid = read_grid::<_, f16>(dbg!(header), reader)?;
 
     Ok(())
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let f = File::open("C:/Users/Jasper/Downloads/armadillo.vdb-1.0.0/armadillo.vdb")?;
+    let f = File::open("C:/Users/Jasper/Downloads/bunny_cloud.vdb-1.0.0/bunny_cloud.vdb")?;
+    // let f = File::open("C:/Users/Jasper/Downloads/armadillo.vdb-1.0.0/armadillo.vdb")?;
     // let f = File::open("C:/Users/Jasper/Downloads/cube.vdb-1.0.0/cube.vdb")?;
     let mut reader = BufReader::new(f);
 

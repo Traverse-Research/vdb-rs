@@ -10,4 +10,7 @@ byteorder = "1.4"
 thiserror = "1"
 glam = "0.23"
 bitvec = "1"
-half = "2.2.1"
+half = { version = "2.2.1", features = ["bytemuck"] }
+bitflags = "1"
+bytemuck = { version ="1.13", features = ["extern_crate_alloc"] }
+flate2 = "1"

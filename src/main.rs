@@ -1,12 +1,10 @@
 use bitflags::bitflags;
 use bitvec::prelude::*;
 use bytemuck::{bytes_of_mut, cast_slice_mut, Pod};
-use byteorder::{BigEndian, LittleEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use half::f16;
-use half::vec::HalfBitsVecExt;
 use std::collections::HashMap;
 use std::error::Error;
-use std::ffi::{OsStr, OsString};
 use std::fs::File;
 use std::io::BufReader;
 use std::io::{Read, Seek, SeekFrom};
@@ -74,8 +72,11 @@ fn read_i_vec3<R: Read + Seek>(reader: &mut R) -> Result<glam::IVec3, ParseError
     Ok(glam::IVec3::new(x, y, z))
 }
 
+#[derive(Debug)]
 struct Grid<ValueTy> {
     tree: Tree<ValueTy>,
+    transform: Map,
+    grid_descriptor: GridDescriptor,
 }
 
 #[derive(Debug)]
@@ -94,6 +95,10 @@ impl GridDescriptor {
     fn seek_to_grid<R: Read + Seek>(&self, reader: &mut R) {
         reader.seek(SeekFrom::Start(self.grid_pos));
     }
+
+    fn seek_to_blocks<R: Read + Seek>(&self, reader: &mut R) {
+        reader.seek(SeekFrom::Start(self.block_pos));
+    }
 }
 
 fn read_grid<R: Read + Seek, ValueTy: Pod + std::fmt::Debug>(
@@ -101,17 +106,14 @@ fn read_grid<R: Read + Seek, ValueTy: Pod + std::fmt::Debug>(
     reader: &mut R,
 ) -> Result<Grid<ValueTy>, ParseError> {
     let name = read_name(reader)?;
-
     let grid_type = read_name(reader)?;
 
-    // let instance_parent = reader.read_u32::<LittleEndian>()?;
     let instance_parent = if header.file_version >= OPENVDB_FILE_VERSION_GRID_INSTANCING {
         read_name(reader)?
     } else {
         todo!("instance_parent, file version: {}", header.file_version)
     };
 
-    // comment says "Grid descriptor stream position"
     let grid_pos = reader.read_u64::<LittleEndian>()?;
     let block_pos = reader.read_u64::<LittleEndian>()?;
     let end_pos = reader.read_u64::<LittleEndian>()?;
@@ -137,10 +139,14 @@ fn read_grid<R: Read + Seek, ValueTy: Pod + std::fmt::Debug>(
 
     if header.file_version >= OPENVDB_FILE_VERSION_GRID_INSTANCING {
         let transform = read_transform(reader)?;
-        dbg!(transform);
+        let mut tree = read_tree_topology(&header, &gd, reader)?;
+        read_tree_data(&header, &gd, reader, &mut tree)?;
 
-        let tree = read_tree(&header, &gd, reader)?;
-        Ok(Grid { tree })
+        Ok(Grid {
+            tree,
+            transform,
+            grid_descriptor: gd,
+        })
     } else {
         todo!("Old file version not supported {}", header.file_version);
     }
@@ -223,6 +229,52 @@ fn read_transform<R: Read + Seek>(reader: &mut R) -> Result<Map, ParseError> {
     })
 }
 
+struct GlobalCoord(glam::IVec3);
+struct LocalCoord(glam::UVec3);
+struct Index(u32);
+
+trait Node {
+    const DIM: u32 = 1 << Self::LOG_2_DIM;
+    const LOG_2_DIM: u32;
+    const TOTAL: u32;
+
+    fn local_coord_to_offset(&self, xyz: LocalCoord) -> Index {
+        Index(
+            (((xyz.0[0] & (Self::DIM - 1)) >> Self::TOTAL) << 2 * Self::LOG_2_DIM)
+                + (((xyz.0[1] & (Self::DIM - 1)) >> Self::TOTAL) << Self::LOG_2_DIM)
+                + ((xyz.0[2] & (Self::DIM - 1)) >> Self::TOTAL),
+        )
+    }
+
+    fn offset_to_local_coord(&self, offset: Index) -> LocalCoord {
+        assert!(
+            offset.0 < (1 << 3 * Self::LOG_2_DIM),
+            "Offset {} out of bounds",
+            offset.0
+        );
+
+        let x = offset.0 >> 2 * Self::LOG_2_DIM;
+        let offset = offset.0 & ((1 << 2 * Self::LOG_2_DIM) - 1);
+
+        let y = offset >> Self::LOG_2_DIM;
+        let z = offset & ((1 << Self::LOG_2_DIM) - 1);
+
+        LocalCoord(glam::UVec3::new(x, y, z))
+    }
+
+    fn offset_to_global_coord(&self, offset: Index) -> GlobalCoord {
+        let mut local_coord = self.offset_to_local_coord(offset);
+        local_coord.0[0] <<= Self::TOTAL; //??? Maybe incorrect
+        local_coord.0[1] <<= Self::TOTAL; //??? Maybe incorrect
+        local_coord.0[2] <<= Self::TOTAL; //??? Maybe incorrect
+        GlobalCoord(local_coord.0.as_ivec3() + self.offset())
+    }
+
+    fn offset(&self) -> glam::IVec3 {
+        glam::IVec3::ZERO
+    }
+}
+
 #[derive(Debug)]
 struct NodeHeader<ValueTy> {
     child_mask: BitVec<u64, Lsb0>,
@@ -238,6 +290,11 @@ struct Node3<ValueTy> {
     origin: glam::IVec3,
 }
 
+impl<ValueTy> Node for Node3<ValueTy> {
+    const LOG_2_DIM: u32 = 3;
+    const TOTAL: u32 = 0;
+}
+
 #[derive(Debug)]
 struct Node4<ValueTy> {
     child_mask: BitVec<u64, Lsb0>,
@@ -245,11 +302,21 @@ struct Node4<ValueTy> {
     nodes: HashMap<u32, Node3<ValueTy>>,
 }
 
+impl<ValueTy> Node for Node4<ValueTy> {
+    const LOG_2_DIM: u32 = 4;
+    const TOTAL: u32 = 3;
+}
+
 #[derive(Debug)]
 struct Node5<ValueTy> {
     child_mask: BitVec<u64, Lsb0>,
     value_mask: BitVec<u64, Lsb0>,
     nodes: HashMap<u32, Node4<ValueTy>>,
+}
+
+impl<ValueTy> Node for Node5<ValueTy> {
+    const LOG_2_DIM: u32 = 5;
+    const TOTAL: u32 = 7;
 }
 
 /*
@@ -382,7 +449,7 @@ struct Tree<ValueTy> {
     root_nodes: Vec<Node5<ValueTy>>,
 }
 
-fn read_tree<R: Read + Seek, ValueTy: Pod + std::fmt::Debug>(
+fn read_tree_topology<R: Read + Seek, ValueTy: Pod + std::fmt::Debug>(
     header: &ArchiveHeader,
     gd: &GridDescriptor,
     reader: &mut R,
@@ -390,15 +457,9 @@ fn read_tree<R: Read + Seek, ValueTy: Pod + std::fmt::Debug>(
     let buffer_count = reader.read_u32::<LittleEndian>()?;
     assert_eq!(buffer_count, 1, "Multi-buffer trees are not supported");
 
-    let mut root_node_background_value = 0u32;
-    reader.read(bytes_of_mut(&mut root_node_background_value))?;
-    dbg!(root_node_background_value);
-
+    let root_node_background_value = reader.read_u32::<LittleEndian>()?;
     let number_of_tiles = reader.read_u32::<LittleEndian>()?;
-    dbg!(number_of_tiles);
-
     let number_of_root_nodes = reader.read_u32::<LittleEndian>()?;
-    dbg!(number_of_root_nodes);
 
     let mut root_nodes = vec![];
 
@@ -406,13 +467,10 @@ fn read_tree<R: Read + Seek, ValueTy: Pod + std::fmt::Debug>(
         let vec = read_i_vec3(reader)?;
         let value = reader.read_u32::<LittleEndian>()?;
         let active = reader.read_u8()?;
-
-        dbg!(vec);
     }
 
     for root_idx in 0..number_of_root_nodes {
         let origin = read_i_vec3(reader)?;
-        dbg!(origin);
 
         let node_5 = read_node_header::<_, ValueTy>(reader, 5 /* 32 * 32 * 32 */, header, gd)?;
         let mut child_5 = HashMap::default();
@@ -455,10 +513,19 @@ fn read_tree<R: Read + Seek, ValueTy: Pod + std::fmt::Debug>(
         });
     }
 
-    println!("Reading data");
+    Ok(Tree { root_nodes })
+}
 
-    for root_idx in 0..number_of_root_nodes {
-        let node_5 = &mut root_nodes[root_idx as usize];
+fn read_tree_data<R: Read + Seek, ValueTy: Pod + std::fmt::Debug>(
+    header: &ArchiveHeader,
+    gd: &GridDescriptor,
+    reader: &mut R,
+    tree: &mut Tree<ValueTy>,
+) -> Result<(), ParseError> {
+    gd.seek_to_blocks(reader);
+
+    for root_idx in 0..tree.root_nodes.len() {
+        let node_5 = &mut tree.root_nodes[root_idx];
         for idx in node_5.child_mask.iter_ones() {
             let mut node_4 = node_5.nodes.get_mut(&(idx as u32)).unwrap();
 
@@ -485,10 +552,7 @@ fn read_tree<R: Read + Seek, ValueTy: Pod + std::fmt::Debug>(
 
     println!("{:?}", reader.stream_position());
 
-    Ok(Tree {
-        root_nodes,
-        // origin
-    })
+    Ok(())
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -555,7 +619,9 @@ struct ArchiveHeader {
     grid_count: u32,
 }
 
-fn read_vdb<R: Read + Seek>(reader: &mut R) -> Result<(), ParseError> {
+fn read_vdb<R: Read + Seek, ValueTy: Pod + std::fmt::Debug>(
+    reader: &mut R,
+) -> Result<Grid<ValueTy>, ParseError> {
     let magic = reader.read_u64::<LittleEndian>()?;
     if magic == 0x2042445600000000 {
         return Err(ParseError::MagicMismatch);
@@ -594,18 +660,23 @@ fn read_vdb<R: Read + Seek>(reader: &mut R) -> Result<(), ParseError> {
         grid_count,
     };
 
-    let grid = read_grid::<_, f16>(dbg!(header), reader)?;
-
-    Ok(())
+    read_grid::<_, ValueTy>(dbg!(header), reader)
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let f = File::open("C:/Users/Jasper/Downloads/bunny_cloud.vdb-1.0.0/bunny_cloud.vdb")?;
-    // let f = File::open("C:/Users/Jasper/Downloads/armadillo.vdb-1.0.0/armadillo.vdb")?;
+    //let f = File::open("C:/Users/Jasper/Downloads/buddha.vdb-1.0.0/buddha.vdb")?;
+    // let f = File::open("C:/Users/Jasper/Downloads/bunny.vdb-1.0.0/bunny.vdb")?;
+    // let f = File::open("C:/Users/Jasper/Downloads/bunny_cloud.vdb-1.0.0/bunny_cloud.vdb")?;
     // let f = File::open("C:/Users/Jasper/Downloads/cube.vdb-1.0.0/cube.vdb")?;
+    // let f = File::open("C:/Users/Jasper/Downloads/crawler.vdb-1.0.0/crawler.vdb")?;
+    // let f = File::open("C:/Users/Jasper/Downloads/dragon.vdb-1.0.0/dragon.vdb")?;
+    // let f = File::open("C:/Users/Jasper/Downloads/emu.vdb-1.0.0/emu.vdb")?;
+    // let f = File::open("C:/Users/Jasper/Downloads/armadillo.vdb-1.0.0/armadillo.vdb")?;
+
+    let f = File::open("C:/Users/Jasper/Downloads/cube.vdb-1.0.0/cube.vdb")?;
     let mut reader = BufReader::new(f);
 
-    dbg!(read_vdb(&mut reader))?;
+    let grid = read_vdb::<_, f16>(&mut reader)?;
     // let mut child_mask = bitvec![u64, Lsb0; 0; 2];
     // child_mask.set(0, true);
     // child_mask.set(1, true);

@@ -18,3 +18,5 @@ half = { version = "2.2.1", features = ["bytemuck"] }
 bitflags = "1"
 bytemuck = { version ="1.13", features = ["extern_crate_alloc"] }
 flate2 = "1"
+
+plotters = "0.3"

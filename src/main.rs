@@ -287,12 +287,17 @@ struct NodeHeader<ValueTy> {
 struct Node3<ValueTy> {
     buffer: Vec<ValueTy>,
     value_mask: BitVec<u64, Lsb0>,
+    value_mask_1: BitVec<u64, Lsb0>,
     origin: glam::IVec3,
 }
 
 impl<ValueTy> Node for Node3<ValueTy> {
     const LOG_2_DIM: u32 = 3;
     const TOTAL: u32 = 0;
+
+    fn offset(&self) -> glam::IVec3 {
+        self.origin
+    }
 }
 
 #[derive(Debug)]
@@ -300,11 +305,16 @@ struct Node4<ValueTy> {
     child_mask: BitVec<u64, Lsb0>,
     value_mask: BitVec<u64, Lsb0>,
     nodes: HashMap<u32, Node3<ValueTy>>,
+    origin: glam::IVec3,
 }
 
 impl<ValueTy> Node for Node4<ValueTy> {
     const LOG_2_DIM: u32 = 4;
     const TOTAL: u32 = 3;
+    
+    fn offset(&self) -> glam::IVec3 {
+        self.origin
+    }
 }
 
 #[derive(Debug)]
@@ -312,11 +322,16 @@ struct Node5<ValueTy> {
     child_mask: BitVec<u64, Lsb0>,
     value_mask: BitVec<u64, Lsb0>,
     nodes: HashMap<u32, Node4<ValueTy>>,
+    origin: glam::IVec3,
 }
 
 impl<ValueTy> Node for Node5<ValueTy> {
     const LOG_2_DIM: u32 = 5;
     const TOTAL: u32 = 7;
+    
+    fn offset(&self) -> glam::IVec3 {
+        self.origin
+    }
 }
 
 /*
@@ -475,10 +490,24 @@ fn read_tree_topology<R: Read + Seek, ValueTy: Pod + std::fmt::Debug>(
         let node_5 = read_node_header::<_, ValueTy>(reader, 5 /* 32 * 32 * 32 */, header, gd)?;
         let mut child_5 = HashMap::default();
 
+        let mut root = Node5 {
+            child_mask: node_5.child_mask.clone(),
+            value_mask: node_5.value_mask.clone(),
+            nodes: Default::default(),
+            origin,
+        };
+
         for idx in node_5.child_mask.iter_ones() {
             let node_4 =
                 read_node_header::<_, ValueTy>(reader, 4 /* 16 * 16 * 16 */, header, gd)?;
             let mut child_4 = HashMap::default();
+
+            let mut cur_node_4 = Node4 {
+                child_mask: node_4.child_mask.clone(),
+                value_mask: node_4.value_mask.clone(),
+                nodes: Default::default(),
+                origin: root.offset_to_global_coord(Index(idx as u32)).0
+            };
 
             for idx in node_4.child_mask.iter_ones() {
                 let linear_dim = (1 << (3 * 3)) as usize;
@@ -491,26 +520,22 @@ fn read_tree_topology<R: Read + Seek, ValueTy: Pod + std::fmt::Debug>(
                     Node3 {
                         buffer: vec![],
                         value_mask,
-                        origin: Default::default(),
+                        value_mask_1: Default::default(),
+                        origin: cur_node_4.offset_to_global_coord(Index(idx as u32)).0,
                     },
                 );
             }
 
+            cur_node_4.nodes = child_4;
+
             child_5.insert(
                 idx as u32,
-                Node4 {
-                    child_mask: node_4.child_mask,
-                    value_mask: node_4.value_mask,
-                    nodes: child_4,
-                },
+                cur_node_4,
             );
         }
 
-        root_nodes.push(Node5 {
-            child_mask: node_5.child_mask,
-            value_mask: node_5.value_mask,
-            nodes: child_5,
-        });
+        root.nodes = child_5;
+        root_nodes.push(root);
     }
 
     Ok(Tree { root_nodes })
@@ -536,11 +561,14 @@ fn read_tree_data<R: Read + Seek, ValueTy: Pod + std::fmt::Debug>(
                 let mut value_mask = bitvec![u64, Lsb0; 0; linear_dim];
                 reader.read_u64_into::<LittleEndian>(value_mask.as_raw_mut_slice())?;
 
+                
                 if header.file_version < OPENVDB_FILE_VERSION_NODE_MASK_COMPRESSION {
                     node_3.origin = read_i_vec3(reader)?;
                     let num_buffers = reader.read_u8()?;
                     assert_eq!(num_buffers, 1);
                 }
+
+                node_3.value_mask_1 = value_mask.clone();
 
                 let data =
                     read_compressed(reader, 3, header, gd, linear_dim, value_mask.as_slice())?;
@@ -662,7 +690,8 @@ fn read_vdb<R: Read + Seek, ValueTy: Pod + std::fmt::Debug>(
 
     read_grid::<_, ValueTy>(dbg!(header), reader)
 }
-
+use bevy::prelude::*;
+use bevy_flycam::{MovementSettings, PlayerPlugin};
 fn main() -> Result<(), Box<dyn Error>> {
     //let f = File::open("C:/Users/Jasper/Downloads/buddha.vdb-1.0.0/buddha.vdb")?;
     // let f = File::open("C:/Users/Jasper/Downloads/bunny.vdb-1.0.0/bunny.vdb")?;
@@ -673,14 +702,160 @@ fn main() -> Result<(), Box<dyn Error>> {
     // let f = File::open("C:/Users/Jasper/Downloads/emu.vdb-1.0.0/emu.vdb")?;
     // let f = File::open("C:/Users/Jasper/Downloads/armadillo.vdb-1.0.0/armadillo.vdb")?;
 
-    let f = File::open("C:/Users/Jasper/Downloads/cube.vdb-1.0.0/cube.vdb")?;
-    let mut reader = BufReader::new(f);
-
-    let grid = read_vdb::<_, f16>(&mut reader)?;
     // let mut child_mask = bitvec![u64, Lsb0; 0; 2];
     // child_mask.set(0, true);
     // child_mask.set(1, true);
     // child_mask.set(3, true); // oob
 
+    App::new()
+        .add_plugins(DefaultPlugins)
+        .add_plugin(VertexPullingRenderPlugin { outlines: true })
+        // .add_plugin(PlayerPlugin)
+        // .insert_resource(MovementSettings {
+        //     sensitivity: 0.00015, // default: 0.00012
+        //     speed: 12.0,          // default: 12.0
+        // })
+        .add_plugin(LookTransformPlugin)
+        .add_plugin(FpsCameraPlugin::default())
+        .add_startup_system(setup)
+        .run();
+
     Ok(())
+}
+use bevy_aabb_instancing::{
+    ColorOptions, ColorOptionsId, ColorOptionsMap, Cuboid, Cuboids, ScalarHueColorOptions,
+    VertexPullingRenderPlugin, COLOR_MODE_SCALAR_HUE,
+};
+use smooth_bevy_cameras::{controllers::fps::*, LookTransformPlugin};
+/// set up a simple 3D scene
+fn setup(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut color_options_map: ResMut<ColorOptionsMap>,
+) {
+    let color_options_id = color_options_map.push(ColorOptions {
+        scalar_hue: ScalarHueColorOptions {
+            min_visible: -10000.0,
+            max_visible: 10000.0,
+            clamp_min: -1.0,
+            clamp_max: 1.0,
+            hue_zero: 240.0,
+            hue_slope: -300.0,
+        },
+        color_mode: COLOR_MODE_SCALAR_HUE,
+        wireframe: 0,
+    });
+
+    // let f = File::open("C:/Users/Jasper/Downloads/buddha.vdb-1.0.0/buddha.vdb").unwrap();
+    // let f = File::open("C:/Users/Jasper/Downloads/bunny.vdb-1.0.0/bunny.vdb").unwrap();
+    // let f = File::open("C:/Users/Jasper/Downloads/bunny_cloud.vdb-1.0.0/bunny_cloud.vdb").unwrap();
+    // let f = File::open("C:/Users/Jasper/Downloads/cube.vdb-1.0.0/cube.vdb").unwrap();
+    // let f = File::open("C:/Users/Jasper/Downloads/crawler.vdb-1.0.0/crawler.vdb").unwrap();
+    // let f = File::open("C:/Users/Jasper/Downloads/dragon.vdb-1.0.0/dragon.vdb").unwrap();
+    // let f = File::open("C:/Users/Jasper/Downloads/emu.vdb-1.0.0/emu.vdb").unwrap();
+
+    let f = File::open("C:/Users/Jasper/Downloads/armadillo.vdb-1.0.0/armadillo.vdb").unwrap();
+    // let f = File::open("C:/Users/Jasper/Downloads/cube.vdb-1.0.0/cube.vdb").unwrap();
+    // let f = File::open("C:/Users/Jasper/Downloads/explosion.vdb-1.0.0/explosion.vdb").unwrap();
+    
+    let mut reader = BufReader::new(f);
+
+    let grid = read_vdb::<_, f16>(&mut reader).unwrap();
+    let tree = grid.tree;
+
+    let mesh = meshes.add(Mesh::from(shape::Cube { size: 0.01 }));
+    let material = materials.add(Color::rgb(0.8, 0.7, 0.6).into());
+
+    for root_idx in 0..tree.root_nodes.len() {
+        let node_5 = &tree.root_nodes[root_idx];
+        for idx in node_5.child_mask.iter_ones() {
+            let node_4 = node_5.nodes.get(&(idx as u32)).unwrap();
+
+            let mut instances = vec![];
+
+            for idx in node_4.child_mask.iter_ones() {
+                if true {
+                    let node_3 = node_4.nodes.get(&(idx as u32)).unwrap();
+
+                    for (idx_1, idx) in node_3.value_mask_1.iter_ones().enumerate() {
+                        if let Some(v) = node_3.buffer.get(idx_1) {
+                            // if *v >= f16::from_f32(0.2f32) {
+                                let global_coord = node_3.offset_to_global_coord(Index(idx as u32));
+                                // println!("{:?} {:?}", idx, &global_coord.0);
+
+                                // commands.spawn(PbrBundle {
+                                //     mesh: mesh.clone_weak(),
+                                //     material: material.clone_weak(),
+                                //     transform: Transform::from_xyz(global_coord.0.x as f32 / 224.0, global_coord.0.y as f32 / 224.0, global_coord.0.z as f32 / 224.0),
+                                //     ..default()
+                                // });
+
+                                let c = global_coord.0.as_vec3();
+                                let c = bevy::prelude::Vec3::new(c.x, c.y, c.z);
+                                instances.push(Cuboid::new(
+                                    c * 0.01,
+                                    // c + bevy::prelude::Vec3::new(0.01, 0.01, 0.01),
+                                    (c + bevy::prelude::Vec3::new(1.0, 1.0, 1.0)) * 0.01,
+                                    u32::from_le_bytes(f32::to_le_bytes((v.to_f32()))),
+                                    // u32::from_le_bytes(f32::to_le_bytes(*v)),
+                                    true,
+                                    idx as u16,
+                                ));
+                            // }
+                        } else {
+                            println!("Index out of bounds {}", idx);
+                        }
+                    }
+                } else {
+                    let global_coord = node_4.offset_to_global_coord(Index(idx as u32));
+
+                    commands.spawn(PbrBundle {
+                        mesh: mesh.clone(),
+                        material: material.clone(),
+                        transform: Transform::from_xyz(
+                            global_coord.0.x as f32 / 224.0,
+                            global_coord.0.y as f32 / 224.0,
+                            global_coord.0.z as f32 / 224.0,
+                        ),
+                        ..default()
+                    });
+                }
+            }
+
+            let cuboids = Cuboids::new(instances);
+            let aabb = cuboids.aabb();
+            commands
+                .spawn(SpatialBundle::default())
+                .insert((cuboids, aabb, color_options_id));
+        }
+    }
+
+    // light
+    commands.spawn(PointLightBundle {
+        point_light: PointLight {
+            intensity: 1500.0,
+            shadows_enabled: true,
+            ..default()
+        },
+        transform: Transform::from_xyz(4.0, 8.0, 4.0),
+        ..default()
+    });
+    // camera
+    // commands.spawn(Camera3dBundle {
+    //     transform: Transform::from_xyz(-2.0, 2.5, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
+    //     ..default()
+    // });
+    commands
+        .spawn(Camera3dBundle::default())
+        .insert(FpsCameraBundle::new(
+            FpsCameraController {
+                translate_sensitivity: 2.0,
+                ..Default::default()
+            },
+            Vec3::new(0.0, 1.0, 10.0),
+            Vec3::new(0.0, 0.0, 0.0),
+        ));
+    // commands.spawn(Camera3dBundle::default())
+    // .with(FlyCamera::default());
 }

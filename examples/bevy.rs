@@ -1,13 +1,13 @@
-use vdb_reader::{read_vdb, Index, Node};
+use bevy::prelude::*;
 use bevy_aabb_instancing::{
     ColorOptions, ColorOptionsMap, Cuboid, Cuboids, ScalarHueColorOptions,
     VertexPullingRenderPlugin, COLOR_MODE_SCALAR_HUE,
 };
-use smooth_bevy_cameras::{controllers::fps::*, LookTransformPlugin};
-use bevy::prelude::*;
 use half::f16;
+use smooth_bevy_cameras::{controllers::fps::*, LookTransformPlugin};
+use vdb_reader::{read_vdb, Index, Node};
 
-use std::{fs::File, io::BufReader, error::Error};
+use std::{error::Error, fs::File, io::BufReader};
 
 fn main() -> Result<(), Box<dyn Error>> {
     //let f = File::open("C:/Users/Jasper/Downloads/buddha.vdb-1.0.0/buddha.vdb")?;
@@ -101,7 +101,7 @@ fn setup(
                         instances.push(Cuboid::new(
                             c * 0.01,
                             (c + bevy::prelude::Vec3::new(1.0, 1.0, 1.0)) * 0.01,
-                            //u32::from_le_bytes(f32::to_le_bytes(v.to_f32())),
+                            // u32::from_le_bytes(f32::to_le_bytes(v.to_f32())),
                             v,
                             true,
                             idx as u16,

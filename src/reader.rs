@@ -6,9 +6,10 @@ use crate::data_structure::{
 use crate::transform::Map;
 
 use bitvec::prelude::*;
-use bytemuck::{cast_slice_mut, bytes_of_mut, Pod};
+use bytemuck::{bytes_of_mut, cast_slice_mut, Pod};
 use byteorder::{LittleEndian, ReadBytesExt};
 
+use log::{trace, warn};
 use std::collections::HashMap;
 use std::io::{Read, Seek};
 
@@ -136,7 +137,6 @@ fn read_compressed<R: Read + Seek, T: Pod>(
 ) -> Result<Vec<T>, ParseError> {
     let mut meta_data: NodeMetaData = NodeMetaData::NoMaskAndAllVals;
     if archive.file_version >= OPENVDB_FILE_VERSION_NODE_MASK_COMPRESSION {
-        dbg!(reader.stream_position());
         meta_data = reader.read_u8()?.try_into()?;
     }
 
@@ -147,10 +147,10 @@ fn read_compressed<R: Read + Seek, T: Pod>(
         || meta_data == NodeMetaData::MaskAndOneInactiveVal
         || meta_data == NodeMetaData::MaskAndTwoInactiveVals
     {
-        reader.read_exact(bytes_of_mut(&mut inactive_val0));
+        reader.read_exact(bytes_of_mut(&mut inactive_val0))?;
 
         if meta_data == NodeMetaData::MaskAndTwoInactiveVals {
-            reader.read_exact(bytes_of_mut(&mut inactive_val1));
+            reader.read_exact(bytes_of_mut(&mut inactive_val1))?;
         }
     }
 
@@ -173,38 +173,50 @@ fn read_compressed<R: Read + Seek, T: Pod>(
         num_values
     };
 
-    dbg!(count);
-
     let data = if gd.compression.contains(Compression::BLOSC) {
         let num_compressed_bytes = reader.read_i64::<LittleEndian>()?;
+        let compressed_count = num_compressed_bytes / std::mem::size_of::<T>() as i64;
+
+        trace!("Reading blocs data, {} bytes", num_compressed_bytes);
         if num_compressed_bytes <= 0 {
-            let mut data = vec![T::zeroed(); (-num_compressed_bytes) as usize];
+            let mut data = vec![T::zeroed(); (-compressed_count) as usize];
             reader.read_exact(cast_slice_mut(&mut data))?;
+            assert_eq!(-compressed_count as usize, count);
             data
         } else {
             let mut data = vec![T::zeroed(); count];
 
-            if count > 0 { 
-                let mut blosc_data = vec![0u8; num_compressed_bytes as usize];
-                reader.read_exact(&mut blosc_data)?;
-                dbg!(num_compressed_bytes);
-            
-                let error = unsafe { 
-                    blosc_src::blosc_decompress_ctx(blosc_data.as_ptr() as *const _, data.as_mut_ptr() as * mut _, count * std::mem::size_of::<T>(), 1)
+            let mut blosc_data = vec![0u8; num_compressed_bytes as usize];
+            reader.read_exact(&mut blosc_data)?;
+            if count > 0 {
+                let error = unsafe {
+                    blosc_src::blosc_decompress_ctx(
+                        blosc_data.as_ptr() as *const _,
+                        data.as_mut_ptr() as *mut _,
+                        count * std::mem::size_of::<T>(),
+                        1,
+                    )
                 };
 
                 if error < 1 {
-                    dbg!(error);
-                    dbg!(count);
-                    return Err(ParseError::InvalidBloscData)
+                    return Err(ParseError::InvalidBloscData);
                 }
+            } else {
+                trace!(
+                    "Skipping blosc decompression because of a {}-count read",
+                    count
+                );
             }
+
             data
         }
     } else if gd.compression.contains(Compression::ZIP) {
         let num_zipped_bytes = reader.read_i64::<LittleEndian>()?;
+        let compressed_count = num_zipped_bytes / std::mem::size_of::<T>() as i64;
+
+        trace!("Reading zipped data, {} bytes", num_zipped_bytes);
         if num_zipped_bytes <= 0 {
-            let mut data = vec![T::zeroed(); (-num_zipped_bytes) as usize];
+            let mut data = vec![T::zeroed(); (-compressed_count) as usize];
             reader.read_exact(cast_slice_mut(&mut data))?;
             data
         } else {
@@ -217,32 +229,41 @@ fn read_compressed<R: Read + Seek, T: Pod>(
             data
         }
     } else {
-        let mut data = vec![T::zeroed(); count];
+        trace!("Reading uncompressed data, {} elements", count);
 
+        let mut data = vec![T::zeroed(); count];
         reader.read_exact(cast_slice_mut(&mut data))?;
         data
     };
-    
-    if gd.compression.contains(Compression::ACTIVE_MASK) && data.len() != num_values {
-        let mut expanded = vec![T::zeroed(); num_values];
-        let mut read_idx = 0;
-        for dest_idx in 0..num_values {
-            expanded[dest_idx] = if value_mask[dest_idx] {
-                let v = data[read_idx];
-                read_idx += 1;
-                v
-            } else {
-                if selection_mask[dest_idx] {
-                    inactive_val1
+
+    Ok(
+        if gd.compression.contains(Compression::ACTIVE_MASK) && data.len() != num_values {
+            trace!(
+                "Expanding active mask data {} to {}",
+                data.len(),
+                num_values
+            );
+
+            let mut expanded = vec![T::zeroed(); num_values];
+            let mut read_idx = 0;
+            for dest_idx in 0..num_values {
+                expanded[dest_idx] = if value_mask[dest_idx] {
+                    let v = data[read_idx];
+                    read_idx += 1;
+                    v
                 } else {
-                    inactive_val0
+                    if selection_mask[dest_idx] {
+                        inactive_val1
+                    } else {
+                        inactive_val0
+                    }
                 }
             }
-        }
-        Ok(expanded)
-    } else {
-        Ok(data)
-    }
+            expanded
+        } else {
+            data
+        },
+    )
 }
 
 fn read_metadata<R: Read + Seek>(reader: &mut R) -> Result<Metadata, ParseError> {
@@ -272,6 +293,8 @@ fn read_metadata<R: Read + Seek>(reader: &mut R) -> Result<Metadata, ParseError>
                     let mut data = vec![0u8; len as usize];
                     reader.read_exact(&mut data)?;
 
+                    warn!("Unknown metadata value {}", name);
+
                     MetadataValue::Unknown {
                         name: name.to_owned(),
                         data,
@@ -281,7 +304,12 @@ fn read_metadata<R: Read + Seek>(reader: &mut R) -> Result<Metadata, ParseError>
         );
     }
 
-    Ok(dbg!(meta_data))
+    trace!("Metadata");
+    for (name, value) in meta_data.0.iter() {
+        trace!("{}: {:?}", name, value);
+    }
+
+    Ok(meta_data)
 }
 
 fn read_tree_topology<R: Read + Seek, ValueTy: Pod + std::fmt::Debug>(

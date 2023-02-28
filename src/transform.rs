@@ -14,5 +14,5 @@ pub enum Map {
         scale_values_inverse: glam::DVec3,
         inv_scale_sqr: glam::DVec3,
         inv_twice_scale: glam::DVec3,
-    }
+    },
 }

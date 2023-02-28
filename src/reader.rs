@@ -6,7 +6,7 @@ use crate::data_structure::{
 use crate::transform::Map;
 
 use bitvec::prelude::*;
-use bytemuck::{cast_slice_mut, Pod};
+use bytemuck::{cast_slice_mut, bytes_of_mut, Pod};
 use byteorder::{LittleEndian, ReadBytesExt};
 
 use std::collections::HashMap;
@@ -25,16 +25,18 @@ pub const OPENVDB_FILE_VERSION_FLOAT_FRUSTUM_BBOX: u32 = 221;
 pub const OPENVDB_FILE_VERSION_NODE_MASK_COMPRESSION: u32 = 222;
 pub const OPENVDB_FILE_VERSION_BLOSC_COMPRESSION: u32 = 223;
 pub const OPENVDB_FILE_VERSION_POINT_INDEX_GRID: u32 = 223;
-pub const OPENVDB_FILE_VERSION_MULTIPASS_IO: u32 = 22;
+pub const OPENVDB_FILE_VERSION_MULTIPASS_IO: u32 = 224;
 
 #[derive(thiserror::Error, Debug)]
 pub enum ParseError {
     #[error("Magic bytes mismatched")]
     MagicMismatch,
-    #[error("Invalid compression")]
-    InvalidCompression,
-    #[error("Invalid node meta-data")]
-    InvalidNodeMetadata,
+    #[error("Invalid compression {0}")]
+    InvalidCompression(u32),
+    #[error("Invalid node meta-data: {0}")]
+    InvalidNodeMetadata(u8),
+    #[error("Invalid Blosc data")]
+    InvalidBloscData,
     #[error("IoError")]
     IoError(#[from] std::io::Error),
 }
@@ -84,6 +86,14 @@ fn read_transform<R: Read + Seek>(reader: &mut R) -> Result<Map, ParseError> {
             inv_scale_sqr: read_d_vec3(reader)?,
             inv_twice_scale: read_d_vec3(reader)?,
         },
+        "UniformScaleTranslateMap" => Map::UniformScaleTranslateMap {
+            translation: read_d_vec3(reader)?,
+            scale_values: read_d_vec3(reader)?,
+            voxel_size: read_d_vec3(reader)?,
+            scale_values_inverse: read_d_vec3(reader)?,
+            inv_scale_sqr: read_d_vec3(reader)?,
+            inv_twice_scale: read_d_vec3(reader)?,
+        },
         v => panic!("Not supported {}", v),
     })
 }
@@ -124,19 +134,23 @@ fn read_compressed<R: Read + Seek, T: Pod>(
     num_values: usize,
     value_mask: &BitSlice<u64, Lsb0>,
 ) -> Result<Vec<T>, ParseError> {
-    let mut meta_data: NodeMetaData = NodeMetaData::NoMaskOrInactiveVals;
+    let mut meta_data: NodeMetaData = NodeMetaData::NoMaskAndAllVals;
     if archive.file_version >= OPENVDB_FILE_VERSION_NODE_MASK_COMPRESSION {
+        dbg!(reader.stream_position());
         meta_data = reader.read_u8()?.try_into()?;
+    }
 
-        if meta_data == NodeMetaData::NoMaskAndOneInactiveVal
-            || meta_data == NodeMetaData::MaskAndOneInactiveVal
-            || meta_data == NodeMetaData::MaskAndTwoInactiveVals
-        {
-            let _inactive_val0 = reader.read_u32::<LittleEndian>()?;
+    // jb-todo: proper background value support
+    let mut inactive_val0 = T::zeroed();
+    let mut inactive_val1 = T::zeroed();
+    if meta_data == NodeMetaData::NoMaskAndOneInactiveVal
+        || meta_data == NodeMetaData::MaskAndOneInactiveVal
+        || meta_data == NodeMetaData::MaskAndTwoInactiveVals
+    {
+        reader.read_exact(bytes_of_mut(&mut inactive_val0));
 
-            if meta_data == NodeMetaData::MaskAndTwoInactiveVals {
-                let _inactive_val1 = reader.read_u32::<LittleEndian>()?;
-            }
+        if meta_data == NodeMetaData::MaskAndTwoInactiveVals {
+            reader.read_exact(bytes_of_mut(&mut inactive_val1));
         }
     }
 
@@ -159,9 +173,37 @@ fn read_compressed<R: Read + Seek, T: Pod>(
         num_values
     };
 
-    let data = if gd.compression.contains(Compression::ZIP) {
+    dbg!(count);
+
+    let data = if gd.compression.contains(Compression::BLOSC) {
+        let num_compressed_bytes = reader.read_i64::<LittleEndian>()?;
+        if num_compressed_bytes <= 0 {
+            let mut data = vec![T::zeroed(); (-num_compressed_bytes) as usize];
+            reader.read_exact(cast_slice_mut(&mut data))?;
+            data
+        } else {
+            let mut data = vec![T::zeroed(); count];
+
+            if count > 0 { 
+                let mut blosc_data = vec![0u8; num_compressed_bytes as usize];
+                reader.read_exact(&mut blosc_data)?;
+                dbg!(num_compressed_bytes);
+            
+                let error = unsafe { 
+                    blosc_src::blosc_decompress_ctx(blosc_data.as_ptr() as *const _, data.as_mut_ptr() as * mut _, count * std::mem::size_of::<T>(), 1)
+                };
+
+                if error < 1 {
+                    dbg!(error);
+                    dbg!(count);
+                    return Err(ParseError::InvalidBloscData)
+                }
+            }
+            data
+        }
+    } else if gd.compression.contains(Compression::ZIP) {
         let num_zipped_bytes = reader.read_i64::<LittleEndian>()?;
-        if num_zipped_bytes < 0 {
+        if num_zipped_bytes <= 0 {
             let mut data = vec![T::zeroed(); (-num_zipped_bytes) as usize];
             reader.read_exact(cast_slice_mut(&mut data))?;
             data
@@ -180,8 +222,27 @@ fn read_compressed<R: Read + Seek, T: Pod>(
         reader.read_exact(cast_slice_mut(&mut data))?;
         data
     };
-
-    Ok(data)
+    
+    if gd.compression.contains(Compression::ACTIVE_MASK) && data.len() != num_values {
+        let mut expanded = vec![T::zeroed(); num_values];
+        let mut read_idx = 0;
+        for dest_idx in 0..num_values {
+            expanded[dest_idx] = if value_mask[dest_idx] {
+                let v = data[read_idx];
+                read_idx += 1;
+                v
+            } else {
+                if selection_mask[dest_idx] {
+                    inactive_val1
+                } else {
+                    inactive_val0
+                }
+            }
+        }
+        Ok(expanded)
+    } else {
+        Ok(data)
+    }
 }
 
 fn read_metadata<R: Read + Seek>(reader: &mut R) -> Result<Metadata, ParseError> {
@@ -220,7 +281,7 @@ fn read_metadata<R: Read + Seek>(reader: &mut R) -> Result<Metadata, ParseError>
         );
     }
 
-    Ok(meta_data)
+    Ok(dbg!(meta_data))
 }
 
 fn read_tree_topology<R: Read + Seek, ValueTy: Pod + std::fmt::Debug>(
@@ -361,6 +422,8 @@ fn read_grid<R: Read + Seek, ValueTy: Pod + std::fmt::Debug>(
         meta_data: Default::default(),
     };
 
+    dbg!(&gd);
+
     gd.seek_to_grid(reader)?;
     if header.file_version >= OPENVDB_FILE_VERSION_NODE_MASK_COMPRESSION {
         gd.compression = reader.read_u32::<LittleEndian>()?.try_into()?;
@@ -423,6 +486,8 @@ pub fn read_vdb<R: Read + Seek, ValueTy: Pod + std::fmt::Debug>(
         grid_count,
     };
 
+    dbg!(&header);
+
     read_grid::<_, ValueTy>(header, reader)
 }
 
@@ -438,7 +503,7 @@ impl TryFrom<u8> for NodeMetaData {
             4 => Self::MaskAndOneInactiveVal,
             5 => Self::MaskAndTwoInactiveVals,
             6 => Self::NoMaskAndAllVals,
-            _ => return Err(ParseError::InvalidNodeMetadata),
+            _ => return Err(ParseError::InvalidNodeMetadata(v)),
         })
     }
 }
@@ -447,12 +512,13 @@ impl TryFrom<u32> for Compression {
     type Error = ParseError;
 
     fn try_from(v: u32) -> Result<Compression, ParseError> {
-        Ok(match v {
-            0 => Compression::NONE,
-            0x1 => Compression::ZIP,
-            0x2 => Compression::ACTIVE_MASK,
-            0x4 => Compression::BLOSC,
-            _ => return Err(ParseError::InvalidCompression),
-        })
+        // Ok(match v {
+        //     0 => Compression::NONE,
+        //     0x1 => Compression::ZIP,
+        //     0x2 => Compression::ACTIVE_MASK,
+        //     0x4 => Compression::BLOSC,
+        //     _ => return Err(ParseError::InvalidCompression(v)),
+        // })
+        Self::from_bits(v).ok_or(ParseError::InvalidCompression(v))
     }
 }

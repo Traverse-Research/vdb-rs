@@ -44,7 +44,7 @@ impl GridDescriptor {
 pub struct Metadata(pub HashMap<String, MetadataValue>);
 
 impl Metadata {
-    fn is_half_float(&self) -> bool {
+    pub fn is_half_float(&self) -> bool {
         self.0.get("is_saved_as_half_float") == Some(&MetadataValue::Bool(true))
     }
 }
@@ -89,9 +89,9 @@ pub trait Node {
 
     fn offset_to_global_coord(&self, offset: Index) -> GlobalCoord {
         let mut local_coord = self.offset_to_local_coord(offset);
-        local_coord.0[0] <<= Self::TOTAL; //??? Maybe incorrect
-        local_coord.0[1] <<= Self::TOTAL; //??? Maybe incorrect
-        local_coord.0[2] <<= Self::TOTAL; //??? Maybe incorrect
+        local_coord.0[0] <<= Self::TOTAL;
+        local_coord.0[1] <<= Self::TOTAL;
+        local_coord.0[2] <<= Self::TOTAL;
         GlobalCoord(local_coord.0.as_ivec3() + self.offset())
     }
 

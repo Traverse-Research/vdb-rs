@@ -1,4 +1,4 @@
-use crate::coordinates::Index;
+use crate::coordinates::{LocalCoord, Index, local_coord_to_tile_key};
 use crate::data_structure::{
     ArchiveHeader, Compression, Grid, GridDescriptor, Metadata, MetadataValue, Node, Node3, Node4,
     Node5, NodeHeader, NodeMetaData, Tree,
@@ -231,7 +231,6 @@ fn read_compressed<R: Read + Seek, T: Pod>(
         || meta_data == NodeMetaData::MaskAndOneInactiveVal
         || meta_data == NodeMetaData::MaskAndTwoInactiveVals
     {
-        // let selection_mask = reader.read_u32::<LittleEndian>()?;
         reader.read_u64_into::<LittleEndian>(selection_mask.as_raw_mut_slice())?;
     }
 
@@ -248,7 +247,12 @@ fn read_compressed<R: Read + Seek, T: Pod>(
     let data = if gd.meta_data.is_half_float()
         && std::any::TypeId::of::<T>() == std::any::TypeId::of::<f32>()
     {
+        // meta-data indicates that this is stored as f16 so we can enforce reading it as such
         let data = read_compressed_data::<_, f16>(reader, archive, gd, count)?;
+
+        // We then up-cast to f32 because we verified manually that T = f32.
+        // However, we still need a bytemuck cast because the compiler doesn't know
+        // because we did a runtime check.
         bytemuck::cast_vec(data.into_iter().map(|v| v.to_f32()).collect::<Vec<f32>>())
     } else {
         read_compressed_data(reader, archive, gd, count)?
@@ -256,6 +260,8 @@ fn read_compressed<R: Read + Seek, T: Pod>(
 
     Ok(
         if gd.compression.contains(Compression::ACTIVE_MASK) && data.len() != num_values {
+            // Mask compressed means that all data is tightly packed next to each other
+            // we need to expand it here to make indexing work again.
             trace!(
                 "Expanding active mask data {} to {}",
                 data.len(),
@@ -270,6 +276,9 @@ fn read_compressed<R: Read + Seek, T: Pod>(
                     read_idx += 1;
                     v
                 } else {
+                    // for the values that weren't present
+                    // we use the selection_mask to decide a
+                    // background value
                     if selection_mask[dest_idx] {
                         inactive_val1
                     } else {
@@ -360,7 +369,8 @@ fn read_tree_topology<R: Read + Seek, ValueTy: Pod + std::fmt::Debug>(
             child_mask: node_5.child_mask.clone(),
             value_mask: node_5.value_mask.clone(),
             nodes: Default::default(),
-            origin,
+            origin: origin.clone(),
+            key: local_coord_to_tile_key(&LocalCoord(origin.as_uvec3())) // small hack since this should probably be a GlobalCoord
         };
 
         for idx in node_5.child_mask.iter_ones() {

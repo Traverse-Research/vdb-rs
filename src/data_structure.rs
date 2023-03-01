@@ -1,4 +1,4 @@
-use crate::coordinates::{GlobalCoord, Index, LocalCoord};
+use crate::coordinates::{GlobalCoord, Index, LocalCoord, local_coord_to_tile_key, TileKey};
 use crate::transform::Map;
 use bitflags::bitflags;
 use bitvec::prelude::*;
@@ -10,6 +10,29 @@ pub struct Grid<ValueTy> {
     pub tree: Tree<ValueTy>,
     pub transform: Map,
     pub grid_descriptor: GridDescriptor,
+}
+
+impl<ValueTy> Grid<ValueTy>  {
+    pub fn get_value(&self, ijk: &GlobalCoord) -> Option<&ValueTy> {
+        for node in &self.tree.root_nodes {
+            // if node.key == local_coord_to_tile_key(ijk) {
+                let local_coord = (ijk.0.as_ivec3() - node.offset()).as_uvec3();
+
+                let idx = node.global_coord_to_offset(ijk);
+                let node = node.nodes.get(&idx.0)?;
+                let idx = dbg!(node.global_coord_to_offset(ijk));
+                let node = node.nodes.get(&idx.0)?;
+                let idx = node.global_coord_to_offset(ijk);
+                if node.value_mask[idx.0 as usize] {
+                    return Some(&node.buffer[idx.0 as usize]);
+                }
+
+                return None;
+            // }
+        }
+
+        None
+    }
 }
 
 #[derive(Debug)]
@@ -63,12 +86,17 @@ pub trait Node {
     const LOG_2_DIM: u32;
     const TOTAL: u32;
 
-    fn local_coord_to_offset(&self, xyz: LocalCoord) -> Index {
+    fn local_coord_to_offset(&self, xyz: &LocalCoord) -> Index {
         Index(
             (((xyz.0[0] & (Self::DIM - 1)) >> Self::TOTAL) << 2 * Self::LOG_2_DIM)
                 + (((xyz.0[1] & (Self::DIM - 1)) >> Self::TOTAL) << Self::LOG_2_DIM)
                 + ((xyz.0[2] & (Self::DIM - 1)) >> Self::TOTAL),
         )
+    }
+
+    fn global_coord_to_offset(&self, xyz: &GlobalCoord) -> Index {
+        let local_coord = ((xyz.0 - self.offset()) >> Self::TOTAL).as_uvec3();
+        self.local_coord_to_offset(&LocalCoord(local_coord))
     }
 
     fn offset_to_local_coord(&self, offset: Index) -> LocalCoord {
@@ -145,6 +173,7 @@ pub struct Node5<ValueTy> {
     pub value_mask: BitVec<u64, Lsb0>,
     pub nodes: HashMap<u32, Node4<ValueTy>>,
     pub origin: glam::IVec3,
+    pub key: TileKey,
 }
 
 impl<ValueTy> Node for Node5<ValueTy> {

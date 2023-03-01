@@ -75,13 +75,12 @@ fn setup(
     let mut reader = BufReader::new(f);
 
     let grid = read_vdb::<_, half::f16>(&mut reader).unwrap();
-    let tree = grid.tree;
 
     let mesh = meshes.add(Mesh::from(shape::Cube { size: 0.01 }));
     let material = materials.add(Color::rgb(0.8, 0.7, 0.6).into());
 
-    for root_idx in 0..tree.root_nodes.len() {
-        let node_5 = &tree.root_nodes[root_idx];
+    for root_idx in 0..grid.tree.root_nodes.len() {
+        let node_5 = &grid.tree.root_nodes[root_idx];
         for idx in node_5.child_mask.iter_ones() {
             let node_4 = node_5.nodes.get(&(idx as u32)).unwrap();
 
@@ -92,19 +91,21 @@ fn setup(
                     let node_3 = node_4.nodes.get(&(idx as u32)).unwrap();
 
                     for idx in node_3.value_mask.iter_ones() {
-                        let v = node_3.buffer[idx];
-                        let global_coord = node_3.offset_to_global_coord(Index(idx as u32));
+                        //let v = node_3.buffer[idx];
+                        if let Some(v) = grid.get_value(&node_3.offset_to_global_coord(Index(idx as u32))) {
+                            let global_coord = node_3.offset_to_global_coord(Index(idx as u32));
 
-                        let c = global_coord.0.as_vec3();
-                        let c = bevy::prelude::Vec3::new(c.x, c.y, c.z);
-                        instances.push(Cuboid::new(
-                            c * 0.01,
-                            (c + bevy::prelude::Vec3::new(1.0, 1.0, 1.0)) * 0.01,
-                            u32::from_le_bytes(f32::to_le_bytes(v.to_f32())),
-                            // v,
-                            true,
-                            idx as u16,
-                        ));
+                            let c = global_coord.0.as_vec3();
+                            let c = bevy::prelude::Vec3::new(c.x, c.y, c.z);
+                            instances.push(Cuboid::new(
+                                c * 0.01,
+                                (c + bevy::prelude::Vec3::new(1.0, 1.0, 1.0)) * 0.01,
+                                u32::from_le_bytes(f32::to_le_bytes(v.to_f32())),
+                                // v,
+                                true,
+                                idx as u16,
+                            ));
+                        }
                     }
                 } else {
                     let global_coord = node_4.offset_to_global_coord(Index(idx as u32));

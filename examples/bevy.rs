@@ -3,7 +3,6 @@ use bevy_aabb_instancing::{
     ColorOptions, ColorOptionsMap, Cuboid, Cuboids, ScalarHueColorOptions,
     VertexPullingRenderPlugin, COLOR_MODE_SCALAR_HUE,
 };
-use half::f16;
 use smooth_bevy_cameras::{controllers::fps::*, LookTransformPlugin};
 use vdb_reader::{read_vdb, Index, Node};
 
@@ -75,7 +74,7 @@ fn setup(
 
     let mut reader = BufReader::new(f);
 
-    let grid = read_vdb::<_, u32>(&mut reader).unwrap();
+    let grid = read_vdb::<_, half::f16>(&mut reader).unwrap();
     let tree = grid.tree;
 
     let mesh = meshes.add(Mesh::from(shape::Cube { size: 0.01 }));
@@ -101,8 +100,8 @@ fn setup(
                         instances.push(Cuboid::new(
                             c * 0.01,
                             (c + bevy::prelude::Vec3::new(1.0, 1.0, 1.0)) * 0.01,
-                            // u32::from_le_bytes(f32::to_le_bytes(v.to_f32())),
-                            v,
+                            u32::from_le_bytes(f32::to_le_bytes(v.to_f32())),
+                            // v,
                             true,
                             idx as u16,
                         ));

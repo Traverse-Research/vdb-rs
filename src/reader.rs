@@ -9,6 +9,7 @@ use bitvec::prelude::*;
 use bytemuck::{bytes_of_mut, cast_slice_mut, Pod};
 use byteorder::{LittleEndian, ReadBytesExt};
 
+use half::f16;
 use log::{trace, warn};
 use std::collections::HashMap;
 use std::io::{Read, Seek};
@@ -128,52 +129,13 @@ fn read_node_header<R: Read + Seek, ValueTy: Pod>(
     })
 }
 
-fn read_compressed<R: Read + Seek, T: Pod>(
+fn read_compressed_data<R: Read + Seek, T: Pod>(
     reader: &mut R,
     archive: &ArchiveHeader,
     gd: &GridDescriptor,
-    num_values: usize,
-    value_mask: &BitSlice<u64, Lsb0>,
+    count: usize,
 ) -> Result<Vec<T>, ParseError> {
-    let mut meta_data: NodeMetaData = NodeMetaData::NoMaskAndAllVals;
-    if archive.file_version >= OPENVDB_FILE_VERSION_NODE_MASK_COMPRESSION {
-        meta_data = reader.read_u8()?.try_into()?;
-    }
-
-    // jb-todo: proper background value support
-    let mut inactive_val0 = T::zeroed();
-    let mut inactive_val1 = T::zeroed();
-    if meta_data == NodeMetaData::NoMaskAndOneInactiveVal
-        || meta_data == NodeMetaData::MaskAndOneInactiveVal
-        || meta_data == NodeMetaData::MaskAndTwoInactiveVals
-    {
-        reader.read_exact(bytes_of_mut(&mut inactive_val0))?;
-
-        if meta_data == NodeMetaData::MaskAndTwoInactiveVals {
-            reader.read_exact(bytes_of_mut(&mut inactive_val1))?;
-        }
-    }
-
-    let mut selection_mask = bitvec![u64, Lsb0; 0; num_values];
-
-    if meta_data == NodeMetaData::MaskAndNoInactiveVals
-        || meta_data == NodeMetaData::MaskAndOneInactiveVal
-        || meta_data == NodeMetaData::MaskAndTwoInactiveVals
-    {
-        // let selection_mask = reader.read_u32::<LittleEndian>()?;
-        reader.read_u64_into::<LittleEndian>(selection_mask.as_raw_mut_slice())?;
-    }
-
-    let count = if gd.compression.contains(Compression::ACTIVE_MASK)
-        && meta_data != NodeMetaData::NoMaskAndAllVals
-        && archive.file_version >= OPENVDB_FILE_VERSION_NODE_MASK_COMPRESSION
-    {
-        value_mask.count_ones()
-    } else {
-        num_values
-    };
-
-    let data = if gd.compression.contains(Compression::BLOSC) {
+    Ok(if gd.compression.contains(Compression::BLOSC) {
         let num_compressed_bytes = reader.read_i64::<LittleEndian>()?;
         let compressed_count = num_compressed_bytes / std::mem::size_of::<T>() as i64;
 
@@ -234,6 +196,62 @@ fn read_compressed<R: Read + Seek, T: Pod>(
         let mut data = vec![T::zeroed(); count];
         reader.read_exact(cast_slice_mut(&mut data))?;
         data
+    })
+}
+
+fn read_compressed<R: Read + Seek, T: Pod>(
+    reader: &mut R,
+    archive: &ArchiveHeader,
+    gd: &GridDescriptor,
+    num_values: usize,
+    value_mask: &BitSlice<u64, Lsb0>,
+) -> Result<Vec<T>, ParseError> {
+    let mut meta_data: NodeMetaData = NodeMetaData::NoMaskAndAllVals;
+    if archive.file_version >= OPENVDB_FILE_VERSION_NODE_MASK_COMPRESSION {
+        meta_data = reader.read_u8()?.try_into()?;
+    }
+
+    // jb-todo: proper background value support
+    let mut inactive_val0 = T::zeroed();
+    let mut inactive_val1 = T::zeroed();
+    if meta_data == NodeMetaData::NoMaskAndOneInactiveVal
+        || meta_data == NodeMetaData::MaskAndOneInactiveVal
+        || meta_data == NodeMetaData::MaskAndTwoInactiveVals
+    {
+        reader.read_exact(bytes_of_mut(&mut inactive_val0))?;
+
+        if meta_data == NodeMetaData::MaskAndTwoInactiveVals {
+            reader.read_exact(bytes_of_mut(&mut inactive_val1))?;
+        }
+    }
+
+    let mut selection_mask = bitvec![u64, Lsb0; 0; num_values];
+
+    if meta_data == NodeMetaData::MaskAndNoInactiveVals
+        || meta_data == NodeMetaData::MaskAndOneInactiveVal
+        || meta_data == NodeMetaData::MaskAndTwoInactiveVals
+    {
+        // let selection_mask = reader.read_u32::<LittleEndian>()?;
+        reader.read_u64_into::<LittleEndian>(selection_mask.as_raw_mut_slice())?;
+    }
+
+    let count = if gd.compression.contains(Compression::ACTIVE_MASK)
+        && meta_data != NodeMetaData::NoMaskAndAllVals
+        && archive.file_version >= OPENVDB_FILE_VERSION_NODE_MASK_COMPRESSION
+    {
+        value_mask.count_ones()
+    } else {
+        num_values
+    };
+
+    // jb-todo: we may need to extend this to vector types
+    let data = if gd.meta_data.is_half_float()
+        && std::any::TypeId::of::<T>() == std::any::TypeId::of::<f32>()
+    {
+        let data = read_compressed_data::<_, f16>(reader, archive, gd, count)?;
+        bytemuck::cast_vec(data.into_iter().map(|v| v.to_f32()).collect::<Vec<f32>>())
+    } else {
+        read_compressed_data(reader, archive, gd, count)?
     };
 
     Ok(
@@ -422,10 +440,30 @@ fn read_tree_data<R: Read + Seek, ValueTy: Pod + std::fmt::Debug>(
     Ok(())
 }
 
-fn read_grid<R: Read + Seek, ValueTy: Pod + std::fmt::Debug>(
+fn read_grid_impl<R: Read + Seek, ValueTy: Pod + std::fmt::Debug>(
     header: ArchiveHeader,
     reader: &mut R,
+    gd: GridDescriptor,
 ) -> Result<Grid<ValueTy>, ParseError> {
+    if header.file_version >= OPENVDB_FILE_VERSION_GRID_INSTANCING {
+        let transform = read_transform(reader)?;
+        let mut tree = read_tree_topology::<_, ValueTy>(&header, &gd, reader)?;
+        read_tree_data(&header, &gd, reader, &mut tree)?;
+
+        Ok(Grid {
+            tree,
+            transform,
+            grid_descriptor: gd,
+        })
+    } else {
+        todo!("Old file version not supported {}", header.file_version);
+    }
+}
+
+fn read_grid<R: Read + Seek, ExpectedTy: Pod + std::fmt::Debug>(
+    header: ArchiveHeader,
+    reader: &mut R,
+) -> Result<Grid<ExpectedTy>, ParseError> {
     let name = read_name(reader)?;
     let grid_type = read_name(reader)?;
 
@@ -450,32 +488,20 @@ fn read_grid<R: Read + Seek, ValueTy: Pod + std::fmt::Debug>(
         meta_data: Default::default(),
     };
 
-    dbg!(&gd);
-
     gd.seek_to_grid(reader)?;
     if header.file_version >= OPENVDB_FILE_VERSION_NODE_MASK_COMPRESSION {
         gd.compression = reader.read_u32::<LittleEndian>()?.try_into()?;
     }
     gd.meta_data = read_metadata(reader)?;
 
-    if header.file_version >= OPENVDB_FILE_VERSION_GRID_INSTANCING {
-        let transform = read_transform(reader)?;
-        let mut tree = read_tree_topology(&header, &gd, reader)?;
-        read_tree_data(&header, &gd, reader, &mut tree)?;
+    dbg!(&gd);
 
-        Ok(Grid {
-            tree,
-            transform,
-            grid_descriptor: gd,
-        })
-    } else {
-        todo!("Old file version not supported {}", header.file_version);
-    }
+    read_grid_impl::<_, ExpectedTy>(header, reader, gd)
 }
 
-pub fn read_vdb<R: Read + Seek, ValueTy: Pod + std::fmt::Debug>(
+pub fn read_vdb<R: Read + Seek, ExpectedTy: Pod + std::fmt::Debug>(
     reader: &mut R,
-) -> Result<Grid<ValueTy>, ParseError> {
+) -> Result<Grid<ExpectedTy>, ParseError> {
     let magic = reader.read_u64::<LittleEndian>()?;
     if magic == 0x2042445600000000 {
         return Err(ParseError::MagicMismatch);
@@ -516,7 +542,7 @@ pub fn read_vdb<R: Read + Seek, ValueTy: Pod + std::fmt::Debug>(
 
     dbg!(&header);
 
-    read_grid::<_, ValueTy>(header, reader)
+    read_grid(header, reader)
 }
 
 impl TryFrom<u8> for NodeMetaData {

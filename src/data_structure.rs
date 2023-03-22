@@ -50,32 +50,32 @@ where
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            if let Some(idx) = self.node_3_iter.next() {
-                let v = self.node_3.unwrap().buffer[idx];
-                let global_coord = self
-                    .node_3
-                    .unwrap()
-                    .offset_to_global_coord(Index(idx as u32));
+            if let (Some(idx), Some(node_3)) = (self.node_3_iter.next(), self.node_3) {
+                let v = node_3.buffer[idx];
+                let global_coord = node_3.offset_to_global_coord(Index(idx as u32));
                 let c = global_coord.0.as_vec3();
                 return Some((c, v));
             }
-            if let Some(idx) = self.node_4_iter.next() {
-                self.node_3 = Some(&self.node_4.unwrap().nodes[&(idx as u32)]);
-                self.node_3_iter = self.node_3.unwrap().value_mask.iter_ones();
+            if let (Some(idx), Some(node_4)) = (self.node_4_iter.next(), self.node_4) {
+                let node_3 = &node_4.nodes[&(idx as u32)];
+                self.node_3_iter = node_3.value_mask.iter_ones();
+                self.node_3 = Some(node_3);
                 continue;
             }
-            if let Some(idx) = self.node_5_iter.next() {
-                self.node_4 = Some(&self.node_5.unwrap().nodes[&(idx as u32)]);
-                self.node_4_iter = self.node_4.unwrap().child_mask.iter_ones();
+            if let (Some(idx), Some(node_5)) = (self.node_5_iter.next(), self.node_5) {
+                let node_4 = &node_5.nodes[&(idx as u32)];
+                self.node_4_iter = node_4.child_mask.iter_ones();
+                self.node_4 = Some(node_4);
                 continue;
             }
             if self.root_idx < self.grid.tree.root_nodes.len() {
-                self.node_5 = Some(&self.grid.tree.root_nodes[self.root_idx]);
-                self.node_5_iter = self.node_5.unwrap().child_mask.iter_ones();
+                let node_5 = &self.grid.tree.root_nodes[self.root_idx];
+                self.node_5_iter = node_5.child_mask.iter_ones();
+                self.node_5 = Some(node_5);
                 self.root_idx += 1;
-            } else {
-                return None;
+                continue;
             }
+            return None;
         }
     }
 }

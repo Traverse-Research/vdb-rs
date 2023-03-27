@@ -2,6 +2,8 @@ use crate::coordinates::{GlobalCoord, Index, LocalCoord};
 use crate::transform::Map;
 use bitflags::bitflags;
 use bitvec::prelude::*;
+use bitvec::slice::IterOnes;
+use glam::Vec3;
 use std::collections::HashMap;
 use std::io::{Read, Seek, SeekFrom};
 
@@ -10,6 +12,72 @@ pub struct Grid<ValueTy> {
     pub tree: Tree<ValueTy>,
     pub transform: Map,
     pub grid_descriptor: GridDescriptor,
+}
+
+impl<ValueTy> Grid<ValueTy> {
+    pub fn iter(&self) -> GridIter<'_, ValueTy> {
+        GridIter {
+            grid: self,
+            root_idx: 0,
+            node_5_iter: Default::default(),
+            node_4_iter: Default::default(),
+            node_3_iter: Default::default(),
+
+            node_5: None,
+            node_4: None,
+            node_3: None,
+        }
+    }
+}
+
+pub struct GridIter<'a, ValueTy> {
+    grid: &'a Grid<ValueTy>,
+    root_idx: usize,
+    node_5_iter: IterOnes<'a, u64, Lsb0>,
+    node_4_iter: IterOnes<'a, u64, Lsb0>,
+    node_3_iter: IterOnes<'a, u64, Lsb0>,
+
+    node_5: Option<&'a Node5<ValueTy>>,
+    node_4: Option<&'a Node4<ValueTy>>,
+    node_3: Option<&'a Node3<ValueTy>>,
+}
+
+impl<'a, ValueTy> Iterator for GridIter<'a, ValueTy>
+where
+    ValueTy: Copy,
+{
+    type Item = (Vec3, ValueTy);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if let (Some(idx), Some(node_3)) = (self.node_3_iter.next(), self.node_3) {
+                let v = node_3.buffer[idx];
+                let global_coord = node_3.offset_to_global_coord(Index(idx as u32));
+                let c = global_coord.0.as_vec3();
+                return Some((c, v));
+            }
+            if let (Some(idx), Some(node_4)) = (self.node_4_iter.next(), self.node_4) {
+                let node_3 = &node_4.nodes[&(idx as u32)];
+                self.node_3_iter = node_3.value_mask.iter_ones();
+                self.node_3 = Some(node_3);
+                continue;
+            }
+            if let (Some(idx), Some(node_5)) = (self.node_5_iter.next(), self.node_5) {
+                let node_4 = &node_5.nodes[&(idx as u32)];
+                self.node_4_iter = node_4.child_mask.iter_ones();
+                self.node_4 = Some(node_4);
+                continue;
+            }
+            if self.root_idx < self.grid.tree.root_nodes.len() {
+                let node_5 = &self.grid.tree.root_nodes[self.root_idx];
+                self.node_5_iter = node_5.child_mask.iter_ones();
+                self.node_5 = Some(node_5);
+                self.root_idx += 1;
+                continue;
+            }
+            return None;
+        }
+    }
 }
 
 #[derive(Debug)]

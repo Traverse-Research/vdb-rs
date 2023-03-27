@@ -1,4 +1,26 @@
-# `vdb-rs`
+☁️ `vdb-rs`
+========
+[![Actions Status](https://github.com/Traverse-Research/vdb-rs/workflows/Continuous%20integration/badge.svg)](https://github.com/Traverse-Research/vdb-rs/actions)
+[![Latest version](https://img.shields.io/crates/v/vdb-rs.svg)](https://crates.io/crates/vdb-rs)
+[![Documentation](https://docs.rs/vdb-rs/badge.svg)](https://docs.rs/vdb-rs)
+[![Lines of code](https://tokei.rs/b1/github/Traverse-Research/vdb-rs)](https://github.com/Traverse-Research/vdb-rs)
+![MIT](https://img.shields.io/badge/license-MIT-blue.svg)
+[![Contributor Covenant](https://img.shields.io/badge/contributor%20covenant-v1.4%20adopted-ff69b4.svg)](../master/CODE_OF_CONDUCT.md)
+
+[![Banner](banner.png)](https://traverseresearch.nl)
+
+This crate provides a rust native implementation of the VDB file format, following the original [OpenVDB](https://github.com/AcademySoftwareFoundation/openvdb) implementation.
+
+- [Documentation](https://docs.rs/vdb-rs)
+
+## Usage
+
+Add this to your `Cargo.toml`:
+
+```toml
+[dependencies]
+vdb-rs = "0.1.0"
+```
 
 This crate currently only supports VDB reading and parsing of a relatively large section of the VDB test assets, while it currently
 only supports reading the data an nothing more, the longer term goal for this is to reach feature parity with the C++ OpenVDB crate.

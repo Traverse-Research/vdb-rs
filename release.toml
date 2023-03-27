@@ -1,0 +1,10 @@
+pre-release-commit-message = "Release {{version}}"
+tag-message = "Release {{version}}"
+tag-name = "{{version}}"
+sign-commit = true
+sign-tag = true
+publish = false
+
+pre-release-replacements = [
+  {file="README.md", search="vdb-rs = .*", replace="{{crate_name}} = \"{{version}}\""},
+]

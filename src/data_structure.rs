@@ -133,7 +133,7 @@ pub trait Node {
 
     fn local_coord_to_offset(&self, xyz: LocalCoord) -> Index {
         Index(
-            (((xyz.0[0] & (Self::DIM - 1)) >> Self::TOTAL) << 2 * Self::LOG_2_DIM)
+            (((xyz.0[0] & (Self::DIM - 1)) >> Self::TOTAL) << (2 * Self::LOG_2_DIM))
                 + (((xyz.0[1] & (Self::DIM - 1)) >> Self::TOTAL) << Self::LOG_2_DIM)
                 + ((xyz.0[2] & (Self::DIM - 1)) >> Self::TOTAL),
         )
@@ -141,13 +141,13 @@ pub trait Node {
 
     fn offset_to_local_coord(&self, offset: Index) -> LocalCoord {
         assert!(
-            offset.0 < (1 << 3 * Self::LOG_2_DIM),
+            offset.0 < (1 << (3 * Self::LOG_2_DIM)),
             "Offset {} out of bounds",
             offset.0
         );
 
-        let x = offset.0 >> 2 * Self::LOG_2_DIM;
-        let offset = offset.0 & ((1 << 2 * Self::LOG_2_DIM) - 1);
+        let x = offset.0 >> (2 * Self::LOG_2_DIM);
+        let offset = offset.0 & ((1 << (2 * Self::LOG_2_DIM)) - 1);
 
         let y = offset >> Self::LOG_2_DIM;
         let z = offset & ((1 << Self::LOG_2_DIM) - 1);

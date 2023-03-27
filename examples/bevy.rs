@@ -55,7 +55,7 @@ fn setup(
         wireframe: 0,
     });
 
-    let filename = if let Some(filename) = std::env::args().skip(1).next() {
+    let filename = if let Some(filename) = std::env::args().nth(1) {
         filename
     } else {
         "C:/Users/Jasper/Downloads/armadillo.vdb-1.0.0/armadillo.vdb".to_string()

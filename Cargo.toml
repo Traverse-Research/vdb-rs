@@ -18,7 +18,6 @@ half = { version = "2.2.1", features = ["bytemuck"] }
 bitflags = "1"
 bytemuck = { version ="1.13", features = ["extern_crate_alloc"] }
 flate2 = "1"
-# blosc = "0.1.3"
 blosc-src = "0.1.1"
 log = "0.4"
 

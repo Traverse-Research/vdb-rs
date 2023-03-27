@@ -131,7 +131,7 @@ fn read_node_header<R: Read + Seek, ValueTy: Pod>(
 
 fn read_compressed_data<R: Read + Seek, T: Pod>(
     reader: &mut R,
-    archive: &ArchiveHeader,
+    _archive: &ArchiveHeader,
     gd: &GridDescriptor,
     count: usize,
 ) -> Result<Vec<T>, ParseError> {
@@ -269,12 +269,10 @@ fn read_compressed<R: Read + Seek, T: Pod>(
                     let v = data[read_idx];
                     read_idx += 1;
                     v
+                } else if selection_mask[dest_idx] {
+                    inactive_val1
                 } else {
-                    if selection_mask[dest_idx] {
-                        inactive_val1
-                    } else {
-                        inactive_val0
-                    }
+                    inactive_val0
                 }
             }
             expanded
@@ -512,8 +510,9 @@ pub fn read_vdb<R: Read + Seek, ExpectedTy: Pod + std::fmt::Debug>(
     let library_version_minor = reader.read_u32::<LittleEndian>()?;
     let has_grid_offsets = reader.read_u8()? == 1;
 
-    let compression = if file_version >= OPENVDB_FILE_VERSION_SELECTIVE_COMPRESSION
-        && file_version < OPENVDB_FILE_VERSION_NODE_MASK_COMPRESSION
+    let compression = if (OPENVDB_FILE_VERSION_SELECTIVE_COMPRESSION
+        ..OPENVDB_FILE_VERSION_NODE_MASK_COMPRESSION)
+        .contains(&file_version)
     {
         (reader.read_u8()? as u32).try_into()?
     } else {

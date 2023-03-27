@@ -2,8 +2,25 @@
 name = "vdb-rs"
 version = "0.1.0"
 edition = "2021"
+authors = ["Traverse-Research <support@traverseresearch.nl>"]
+description = "OpenVDB manipulation library."
+license = "MIT"
+readme = "README.md"
+homepage = "https://github.com/Traverse-Research/vdb-rs"
+repository = "https://github.com/Traverse-Research/vdb-rs"
+keywords = ["voxel", "vdb"]
+categories = ["rendering"]
+include = [
+    "src/*.rs",
+    "Cargo.toml",
+]
+documentation = "https://docs.rs/vdb-rs"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[badges]
+maintenance = { status = "actively-developed" }
+
+[package.metadata.docs.rs]
+default-target = "x86_64-pc-windows-msvc"
 
 [profile.dev.package.'*']
 opt-level = 's'

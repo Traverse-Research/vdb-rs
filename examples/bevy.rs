@@ -4,7 +4,7 @@ use bevy_aabb_instancing::{
     VertexPullingRenderPlugin, COLOR_MODE_SCALAR_HUE,
 };
 use smooth_bevy_cameras::{controllers::fps::*, LookTransformPlugin};
-use vdb_reader::{read_vdb, Index, Node};
+use vdb_rs::{read_vdb, Index, Node};
 
 use std::{error::Error, fs::File, io::BufReader};
 

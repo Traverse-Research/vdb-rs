@@ -10,11 +10,7 @@ homepage = "https://github.com/Traverse-Research/vdb-rs"
 repository = "https://github.com/Traverse-Research/vdb-rs"
 keywords = ["voxel", "vdb"]
 categories = ["rendering"]
-include = [
-    "src/*.rs",
-    "LICENSE",
-    "Cargo.toml",
-]
+include = ["src", "LICENSE"]
 documentation = "https://docs.rs/vdb-rs"
 
 [badges]

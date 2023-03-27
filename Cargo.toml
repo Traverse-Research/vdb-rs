@@ -12,6 +12,7 @@ keywords = ["voxel", "vdb"]
 categories = ["rendering"]
 include = [
     "src/*.rs",
+    "LICENSE",
     "Cargo.toml",
 ]
 documentation = "https://docs.rs/vdb-rs"

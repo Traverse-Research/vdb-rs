@@ -13,9 +13,6 @@ categories = ["rendering"]
 include = ["src", "LICENSE"]
 documentation = "https://docs.rs/vdb-rs"
 
-[badges]
-maintenance = { status = "actively-developed" }
-
 [package.metadata.docs.rs]
 default-target = "x86_64-pc-windows-msvc"
 

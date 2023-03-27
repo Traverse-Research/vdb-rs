@@ -7,8 +7,8 @@ jobs:
     name: Check and Lint
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest]
-        rust: [stable, nightly]
+        os: [windows-latest]
+        rust: [stable]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v2

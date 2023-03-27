@@ -510,7 +510,9 @@ pub fn read_vdb<R: Read + Seek, ExpectedTy: Pod + std::fmt::Debug>(
     let library_version_minor = reader.read_u32::<LittleEndian>()?;
     let has_grid_offsets = reader.read_u8()? == 1;
 
-    let compression = if (OPENVDB_FILE_VERSION_SELECTIVE_COMPRESSION..OPENVDB_FILE_VERSION_NODE_MASK_COMPRESSION).contains(&file_version)
+    let compression = if (OPENVDB_FILE_VERSION_SELECTIVE_COMPRESSION
+        ..OPENVDB_FILE_VERSION_NODE_MASK_COMPRESSION)
+        .contains(&file_version)
     {
         (reader.read_u8()? as u32).try_into()?
     } else {

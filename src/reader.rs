@@ -155,16 +155,16 @@ fn read_compressed_data<R: Read + Seek, T: Pod>(
                     let mut cbytes: usize = 0;
                     let mut blocksize: usize = 0;
                     blosc_cbuffer_sizes(
-                        blosc_data.as_ptr() as *const _,
-                        &mut nbytes as *mut usize,
-                        &mut cbytes as *mut usize,
-                        &mut blocksize as *mut usize,
+                        blosc_data.as_ptr().cast(),
+                        &mut nbytes,
+                        &mut cbytes,
+                        &mut blocksize,
                     );
                     let dest_size = nbytes / std::mem::size_of::<T>();
                     let mut dest: Vec<T> = vec![Zeroable::zeroed(); dest_size];
                     let error = blosc_src::blosc_decompress_ctx(
-                        blosc_data.as_ptr() as *const _,
-                        dest.as_mut_ptr() as *mut _,
+                        blosc_data.as_ptr().cast(),
+                        dest.as_mut_ptr().cast(),
                         nbytes,
                         1,
                     );

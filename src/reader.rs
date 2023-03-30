@@ -88,7 +88,7 @@ fn read_transform<R: Read + Seek>(reader: &mut R) -> Result<Map, ParseError> {
             inv_scale_sqr: read_d_vec3(reader)?,
             inv_twice_scale: read_d_vec3(reader)?,
         },
-        "UniformScaleTranslateMap" => Map::UniformScaleTranslateMap {
+        "UniformScaleTranslateMap" | "ScaleTranslateMap" => Map::ScaleTranslateMap {
             translation: read_d_vec3(reader)?,
             scale_values: read_d_vec3(reader)?,
             voxel_size: read_d_vec3(reader)?,

@@ -7,7 +7,7 @@ use crate::transform::Map;
 
 use bitvec::prelude::*;
 use blosc_src::blosc_cbuffer_sizes;
-use bytemuck::{bytes_of_mut, cast_slice_mut, Pod};
+use bytemuck::{bytes_of_mut, cast_slice_mut, Pod, Zeroable};
 use byteorder::{LittleEndian, ReadBytesExt};
 
 use half::f16;
@@ -152,16 +152,16 @@ fn read_compressed_data<R: Read + Seek, T: Pod>(
             if count > 0 {
                 unsafe {
                     let mut nbytes: usize = 0;
-                    let mut _cbytes: usize = 0;
-                    let mut _blocksize: usize = 0;
+                    let mut cbytes: usize = 0;
+                    let mut blocksize: usize = 0;
                     blosc_cbuffer_sizes(
                         blosc_data.as_ptr() as *const _,
                         &mut nbytes as *mut usize,
-                        &mut _cbytes as *mut usize,
-                        &mut _blocksize as *mut usize,
+                        &mut cbytes as *mut usize,
+                        &mut blocksize as *mut usize,
                     );
                     let dest_size = nbytes / std::mem::size_of::<T>();
-                    let mut dest: Vec<T> = Vec::with_capacity(dest_size);
+                    let mut dest: Vec<T> = vec![Zeroable::zeroed(); dest_size];
                     let error = blosc_src::blosc_decompress_ctx(
                         blosc_data.as_ptr() as *const _,
                         dest.as_mut_ptr() as *mut _,
@@ -171,8 +171,6 @@ fn read_compressed_data<R: Read + Seek, T: Pod>(
                     if error < 1 {
                         return Err(ParseError::InvalidBloscData);
                     }
-                    dest.set_len(error as usize / std::mem::size_of::<T>());
-                    dest.shrink_to_fit();
                     dest
                 }
             } else {

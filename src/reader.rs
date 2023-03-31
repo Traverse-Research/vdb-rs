@@ -6,7 +6,8 @@ use crate::data_structure::{
 use crate::transform::Map;
 
 use bitvec::prelude::*;
-use bytemuck::{bytes_of_mut, cast_slice_mut, Pod};
+use blosc_src::blosc_cbuffer_sizes;
+use bytemuck::{bytes_of_mut, cast_slice_mut, Pod, Zeroable};
 use byteorder::{LittleEndian, ReadBytesExt};
 
 use half::f16;
@@ -39,6 +40,8 @@ pub enum ParseError {
     InvalidNodeMetadata(u8),
     #[error("Invalid Blosc data")]
     InvalidBloscData,
+    #[error("Unsupported Blosc format")]
+    UnsupportedBloscFormat,
     #[error("IoError")]
     IoError(#[from] std::io::Error),
 }
@@ -146,31 +149,44 @@ fn read_compressed_data<R: Read + Seek, T: Pod>(
             assert_eq!(-compressed_count as usize, count);
             data
         } else {
-            let mut data = vec![T::zeroed(); count];
-
             let mut blosc_data = vec![0u8; num_compressed_bytes as usize];
             reader.read_exact(&mut blosc_data)?;
             if count > 0 {
+                let mut nbytes: usize = 0;
+                let mut cbytes: usize = 0;
+                let mut blocksize: usize = 0;
+                unsafe {
+                    blosc_cbuffer_sizes(
+                        blosc_data.as_ptr().cast(),
+                        &mut nbytes,
+                        &mut cbytes,
+                        &mut blocksize,
+                    )
+                };
+                if nbytes == 0 {
+                    return Err(ParseError::UnsupportedBloscFormat);
+                }
+                let dest_size = nbytes / std::mem::size_of::<T>();
+                let mut dest: Vec<T> = vec![Zeroable::zeroed(); dest_size];
                 let error = unsafe {
                     blosc_src::blosc_decompress_ctx(
-                        blosc_data.as_ptr() as *const _,
-                        data.as_mut_ptr() as *mut _,
-                        count * std::mem::size_of::<T>(),
+                        blosc_data.as_ptr().cast(),
+                        dest.as_mut_ptr().cast(),
+                        nbytes,
                         1,
                     )
                 };
-
                 if error < 1 {
                     return Err(ParseError::InvalidBloscData);
                 }
+                dest
             } else {
                 trace!(
                     "Skipping blosc decompression because of a {}-count read",
                     count
                 );
+                vec![T::zeroed(); 0]
             }
-
-            data
         }
     } else if gd.compression.contains(Compression::ZIP) {
         let num_zipped_bytes = reader.read_i64::<LittleEndian>()?;

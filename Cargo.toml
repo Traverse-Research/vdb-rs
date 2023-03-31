@@ -23,7 +23,7 @@ debug = true
 [dependencies]
 bitflags = "1"
 bitvec = "1"
-blosc-src = { git = "https://github.com/jasperdewinther/rust-blosc-src.git"} # until https://github.com/mulimoen/rust-blosc-src/pull/2
+blosc-src = { git = "https://github.com/jasperdewinther/rust-blosc-src.git", features = ["lz4", "zlib", "zstd"]} # until https://github.com/mulimoen/rust-blosc-src/pull/2
 bytemuck = { version = "1.13", features = ["extern_crate_alloc"] }
 byteorder = "1.4"
 flate2 = "1"

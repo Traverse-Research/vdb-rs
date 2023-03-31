@@ -40,6 +40,8 @@ pub enum ParseError {
     InvalidNodeMetadata(u8),
     #[error("Invalid Blosc data")]
     InvalidBloscData,
+    #[error("Unsupported Blosc format")]
+    UnsupportedBloscFormat,
     #[error("IoError")]
     IoError(#[from] std::io::Error),
 }
@@ -160,6 +162,9 @@ fn read_compressed_data<R: Read + Seek, T: Pod>(
                         &mut cbytes,
                         &mut blocksize,
                     );
+                    if nbytes == 0 {
+                        return Err(ParseError::UnsupportedBloscFormat);
+                    }
                     let dest_size = nbytes / std::mem::size_of::<T>();
                     let mut dest: Vec<T> = vec![Zeroable::zeroed(); dest_size];
                     let error = blosc_src::blosc_decompress_ctx(

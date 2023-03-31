@@ -152,32 +152,34 @@ fn read_compressed_data<R: Read + Seek, T: Pod>(
             let mut blosc_data = vec![0u8; num_compressed_bytes as usize];
             reader.read_exact(&mut blosc_data)?;
             if count > 0 {
+                let mut nbytes: usize = 0;
+                let mut cbytes: usize = 0;
+                let mut blocksize: usize = 0;
                 unsafe {
-                    let mut nbytes: usize = 0;
-                    let mut cbytes: usize = 0;
-                    let mut blocksize: usize = 0;
                     blosc_cbuffer_sizes(
                         blosc_data.as_ptr().cast(),
                         &mut nbytes,
                         &mut cbytes,
                         &mut blocksize,
-                    );
-                    if nbytes == 0 {
-                        return Err(ParseError::UnsupportedBloscFormat);
-                    }
-                    let dest_size = nbytes / std::mem::size_of::<T>();
-                    let mut dest: Vec<T> = vec![Zeroable::zeroed(); dest_size];
-                    let error = blosc_src::blosc_decompress_ctx(
+                    )
+                };
+                if nbytes == 0 {
+                    return Err(ParseError::UnsupportedBloscFormat);
+                }
+                let dest_size = nbytes / std::mem::size_of::<T>();
+                let mut dest: Vec<T> = vec![Zeroable::zeroed(); dest_size];
+                let error = unsafe {
+                    blosc_src::blosc_decompress_ctx(
                         blosc_data.as_ptr().cast(),
                         dest.as_mut_ptr().cast(),
                         nbytes,
                         1,
-                    );
-                    if error < 1 {
-                        return Err(ParseError::InvalidBloscData);
-                    }
-                    dest
+                    )
+                };
+                if error < 1 {
+                    return Err(ParseError::InvalidBloscData);
                 }
+                dest
             } else {
                 trace!(
                     "Skipping blosc decompression because of a {}-count read",

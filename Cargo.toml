@@ -21,7 +21,7 @@ opt-level = 's'
 debug = true
 
 [dependencies]
-bitflags = "1"
+bitflags = "2"
 bitvec = "1"
 blosc-src = { version = "0.2.1", features = ["lz4"] }
 bytemuck = { version = "1.13", features = ["extern_crate_alloc"] }

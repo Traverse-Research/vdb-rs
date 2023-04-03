@@ -57,12 +57,7 @@ fn read_string<R: Read + Seek>(reader: &mut R, len: usize) -> Result<String, Par
 
 fn read_name<R: Read + Seek>(reader: &mut R) -> Result<String, ParseError> {
     let len = reader.read_u32::<LittleEndian>()? as usize;
-    let mut string = String::with_capacity(len);
-    for _ in 0..len {
-        let c = reader.read_u8()? as char;
-        string.push(c);
-    }
-    Ok(string)
+    read_string(reader, len)
 }
 
 fn read_d_vec3<R: Read + Seek>(reader: &mut R) -> Result<glam::DVec3, ParseError> {

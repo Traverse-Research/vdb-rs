@@ -229,7 +229,7 @@ pub struct Tree<ValueTy> {
     pub root_nodes: Vec<Node5<ValueTy>>,
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum NodeMetaData {
     NoMaskOrInactiveVals,
     NoMaskAndMinusBg,
@@ -241,12 +241,13 @@ pub enum NodeMetaData {
 }
 
 bitflags! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub struct Compression: u32 {
         const NONE = 0;
         const ZIP = 0x1;
         const ACTIVE_MASK = 0x2;
         const BLOSC = 0x4;
-        const DEFAULT_COMPRESSION = Self::BLOSC.bits | Self::ACTIVE_MASK.bits;
+        const DEFAULT_COMPRESSION = Self::BLOSC.bits() | Self::ACTIVE_MASK.bits();
     }
 }
 

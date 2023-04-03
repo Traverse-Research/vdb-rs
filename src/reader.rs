@@ -572,13 +572,6 @@ impl TryFrom<u32> for Compression {
     type Error = ParseError;
 
     fn try_from(v: u32) -> Result<Compression, ParseError> {
-        // Ok(match v {
-        //     0 => Compression::NONE,
-        //     0x1 => Compression::ZIP,
-        //     0x2 => Compression::ACTIVE_MASK,
-        //     0x4 => Compression::BLOSC,
-        //     _ => return Err(ParseError::InvalidCompression(v)),
-        // })
         Self::from_bits(v).ok_or(ParseError::InvalidCompression(v))
     }
 }

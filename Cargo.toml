@@ -35,5 +35,5 @@ thiserror = "1"
 [dev-dependencies]
 bevy = { version = "0.9", default-features = false, features = ["bevy_pbr"] }
 bevy-aabb-instancing = { git = "https://github.com/ForesightMiningSoftwareCorporation/bevy-aabb-instancing.git", rev = "fdb22b96dd3bc0c98430221c425fa83fc5ad001b" }
-bevy_flycam = "0.9"
+bevy_flycam = "0.10"
 smooth-bevy-cameras = { git = "https://github.com/olegomon/smooth-bevy-cameras", rev = "331959876e1c940f04e3701b214fa05ee7936384" }

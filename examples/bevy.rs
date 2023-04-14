@@ -51,7 +51,7 @@ fn setup(
     } else {
         panic!("Invalid argument");
     };
-        
+
     let f = File::open(filename).unwrap();
     let mut reader = BufReader::new(f);
 

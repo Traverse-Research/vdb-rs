@@ -503,8 +503,6 @@ fn read_grid<R: Read + Seek, ExpectedTy: Pod + std::fmt::Debug>(
     }
     gd.meta_data = read_metadata(reader)?;
 
-    dbg!(&gd);
-
     read_grid_impl::<_, ExpectedTy>(header, reader, gd)
 }
 
@@ -549,8 +547,6 @@ pub fn read_vdb<R: Read + Seek, ExpectedTy: Pod + std::fmt::Debug>(
         meta_data,
         grid_count,
     };
-
-    dbg!(&header);
 
     read_grid(header, reader)
 }

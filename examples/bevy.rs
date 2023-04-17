@@ -9,15 +9,6 @@ use vdb_rs::{read_vdb, Index, Node};
 use std::{error::Error, fs::File, io::BufReader};
 
 fn main() -> Result<(), Box<dyn Error>> {
-    //let f = File::open("C:/Users/Jasper/Downloads/buddha.vdb-1.0.0/buddha.vdb")?;
-    // let f = File::open("C:/Users/Jasper/Downloads/bunny.vdb-1.0.0/bunny.vdb")?;
-    // let f = File::open("C:/Users/Jasper/Downloads/bunny_cloud.vdb-1.0.0/bunny_cloud.vdb")?;
-    // let f = File::open("C:/Users/Jasper/Downloads/cube.vdb-1.0.0/cube.vdb")?;
-    // let f = File::open("C:/Users/Jasper/Downloads/crawler.vdb-1.0.0/crawler.vdb")?;
-    // let f = File::open("C:/Users/Jasper/Downloads/dragon.vdb-1.0.0/dragon.vdb")?;
-    // let f = File::open("C:/Users/Jasper/Downloads/emu.vdb-1.0.0/emu.vdb")?;
-    // let f = File::open("C:/Users/Jasper/Downloads/armadillo.vdb-1.0.0/armadillo.vdb")?;
-
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             window: WindowDescriptor {
@@ -58,20 +49,10 @@ fn setup(
     let filename = if let Some(filename) = std::env::args().nth(1) {
         filename
     } else {
-        "C:/Users/Jasper/Downloads/armadillo.vdb-1.0.0/armadillo.vdb".to_string()
+        panic!("Invalid argument");
     };
-    // let f = File::open("C:/Users/Jasper/Downloads/buddha.vdb-1.0.0/buddha.vdb").unwrap();
-    // let f = File::open("C:/Users/Jasper/Downloads/bunny.vdb-1.0.0/bunny.vdb").unwrap();
-    // let f = File::open("C:/Users/Jasper/Downloads/bunny_cloud.vdb-1.0.0/bunny_cloud.vdb").unwrap();
-    // let f = File::open("C:/Users/Jasper/Downloads/cube.vdb-1.0.0/cube.vdb").unwrap();
-    // let f = File::open("C:/Users/Jasper/Downloads/crawler.vdb-1.0.0/crawler.vdb").unwrap();
-    // let f = File::open("C:/Users/Jasper/Downloads/dragon.vdb-1.0.0/dragon.vdb").unwrap();
-    // let f = File::open("C:/Users/Jasper/Downloads/emu.vdb-1.0.0/emu.vdb").unwrap();
 
     let f = File::open(filename).unwrap();
-    // let f = File::open("C:/Users/Jasper/Downloads/cube.vdb-1.0.0/cube.vdb").unwrap();
-    // let f = File::open("C:/Users/Jasper/Downloads/explosion.vdb-1.0.0/explosion.vdb").unwrap();
-
     let mut reader = BufReader::new(f);
 
     let grid = read_vdb::<_, half::f16>(&mut reader).unwrap();
@@ -153,10 +134,10 @@ fn setup(
 }
 
 // odd / broken?
-// no visuals: "C:\Users\Jasper\Downloads\smoke2.vdb-1.0.0\smoke2.vdb"
-// parse error: "C:\Users\Jasper\Downloads\torus.vdb-1.0.0\torus.vdb" InvalidNodeMetadata
-// parse erorr: "C:\Users\Jasper\Downloads\venusstatue.vdb-1.0.0\venusstatue.vdb" InvalidNodeMetadata
-// parse error: "C:\Users\Jasper\Downloads\boat_points.vdb-1.0.0\boat_points.vdb" InvalidCompression
-// parse error: "C:\Users\Jasper\Downloads\bunny_points.vdb-1.0.0\bunny_points.vdb" InvalidCompression
-// parse error: "C:\Users\Jasper\Downloads\sphere_points.vdb-1.0.0\sphere_points.vdb" InvalidCompression
-// parse error: "C:\Users\Jasper\Downloads\waterfall_points.vdb-1.0.0\waterfall_points.vdb" InvalidCompression
+// no visuals: "smoke2.vdb-1.0.0\smoke2.vdb"
+// parse error: "torus.vdb-1.0.0\torus.vdb" InvalidNodeMetadata
+// parse erorr: "venusstatue.vdb-1.0.0\venusstatue.vdb" InvalidNodeMetadata
+// parse error: "boat_points.vdb-1.0.0\boat_points.vdb" InvalidCompression
+// parse error: "bunny_points.vdb-1.0.0\bunny_points.vdb" InvalidCompression
+// parse error: "sphere_points.vdb-1.0.0\sphere_points.vdb" InvalidCompression
+// parse error: "waterfall_points.vdb-1.0.0\waterfall_points.vdb" InvalidCompression

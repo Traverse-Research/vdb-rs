@@ -137,7 +137,7 @@ fn read_compressed_data<R: Read + Seek, T: Pod>(
         let num_compressed_bytes = reader.read_i64::<LittleEndian>()?;
         let compressed_count = num_compressed_bytes / std::mem::size_of::<T>() as i64;
 
-        trace!("Reading blocs data, {} bytes", num_compressed_bytes);
+        trace!("Reading blosc data, {} bytes", num_compressed_bytes);
         if num_compressed_bytes <= 0 {
             let mut data = vec![T::zeroed(); (-compressed_count) as usize];
             reader.read_exact(cast_slice_mut(&mut data))?;

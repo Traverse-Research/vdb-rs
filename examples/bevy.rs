@@ -3,7 +3,7 @@ use bevy_aabb_instancing::{
     Cuboid, CuboidMaterial, CuboidMaterialMap, Cuboids, ScalarHueOptions,
     VertexPullingRenderPlugin, COLOR_MODE_SCALAR_HUE,
 };
-use smooth_bevy_cameras::{controllers::fps::*, LookTransformPlugin};
+use smooth_bevy_cameras::{controllers::unreal::*, LookTransformPlugin};
 use vdb_rs::{read_vdb, Index, Node};
 
 use std::{error::Error, fs::File, io::BufReader};
@@ -19,7 +19,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         }))
         .add_plugin(VertexPullingRenderPlugin { outlines: true })
         .add_plugin(LookTransformPlugin)
-        .add_plugin(FpsCameraPlugin::default())
+        .add_plugin(UnrealCameraPlugin::default())
         .add_startup_system(setup)
         .run();
 
@@ -117,11 +117,8 @@ fn setup(
 
     commands
         .spawn(Camera3dBundle::default())
-        .insert(FpsCameraBundle::new(
-            FpsCameraController {
-                translate_sensitivity: 2.0,
-                ..Default::default()
-            },
+        .insert(UnrealCameraBundle::new(
+            UnrealCameraController::default(),
             Vec3::new(0.0, 1.0, 10.0),
             Vec3::ZERO,
             Vec3::Y,

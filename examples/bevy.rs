@@ -46,11 +46,9 @@ fn setup(
         wireframe: 0,
     });
 
-    let filename = if let Some(filename) = std::env::args().nth(1) {
-        filename
-    } else {
-        panic!("Invalid argument");
-    };
+    let filename = std::env::args()
+        .nth(1)
+        .expect("Missing VDB filename as first argument");
 
     let f = File::open(filename).unwrap();
     let mut reader = BufReader::new(f);

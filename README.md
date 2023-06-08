@@ -1,5 +1,6 @@
 ☁️ `vdb-rs`
 ========
+
 [![Actions Status](https://github.com/Traverse-Research/vdb-rs/workflows/Continuous%20integration/badge.svg)](https://github.com/Traverse-Research/vdb-rs/actions)
 [![Latest version](https://img.shields.io/crates/v/vdb-rs.svg)](https://crates.io/crates/vdb-rs)
 [![Documentation](https://docs.rs/vdb-rs/badge.svg)](https://docs.rs/vdb-rs)
@@ -36,7 +37,7 @@ Implementation of features however is use-case limited, so contributions in area
 
 # Broken files
 
-These are test files from the OpenVDB website; https://www.openvdb.org/download/. Most file seem to be loading correctly
+These are test files from the OpenVDB website; <https://www.openvdb.org/download/>. Most file seem to be loading correctly
 and displaying correctly in the `bevy` example that's provided with this library.
 
 Most of these errors seem to be related to the lack of Multi-Pass I/O, though most need to be investigated.

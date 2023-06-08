@@ -1,9 +1,9 @@
 use bevy::prelude::*;
 use bevy_aabb_instancing::{
-    ColorOptions, ColorOptionsMap, Cuboid, Cuboids, ScalarHueColorOptions,
+    Cuboid, CuboidMaterial, CuboidMaterialMap, Cuboids, ScalarHueOptions,
     VertexPullingRenderPlugin, COLOR_MODE_SCALAR_HUE,
 };
-use smooth_bevy_cameras::{controllers::fps::*, LookTransformPlugin};
+use smooth_bevy_cameras::{controllers::unreal::*, LookTransformPlugin};
 use vdb_rs::{read_vdb, Index, Node};
 
 use std::{error::Error, fs::File, io::BufReader};
@@ -11,15 +11,15 @@ use std::{error::Error, fs::File, io::BufReader};
 fn main() -> Result<(), Box<dyn Error>> {
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
-            window: WindowDescriptor {
+            primary_window: Some(Window {
                 title: "VDB Viewer".into(),
                 ..Default::default()
-            },
+            }),
             ..Default::default()
         }))
         .add_plugin(VertexPullingRenderPlugin { outlines: true })
         .add_plugin(LookTransformPlugin)
-        .add_plugin(FpsCameraPlugin::default())
+        .add_plugin(UnrealCameraPlugin::default())
         .add_startup_system(setup)
         .run();
 
@@ -31,26 +31,23 @@ fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut color_options_map: ResMut<ColorOptionsMap>,
+    mut color_options_map: ResMut<CuboidMaterialMap>,
 ) {
-    let color_options_id = color_options_map.push(ColorOptions {
-        scalar_hue: ScalarHueColorOptions {
+    let color_options_id = color_options_map.push(CuboidMaterial {
+        color_mode: COLOR_MODE_SCALAR_HUE,
+        scalar_hue: ScalarHueOptions {
             min_visible: -10000.0,
             max_visible: 10000.0,
             clamp_min: -1.0,
             clamp_max: 0.5,
-            hue_zero: 240.0,
-            hue_slope: -300.0,
+            ..Default::default()
         },
-        color_mode: COLOR_MODE_SCALAR_HUE,
-        wireframe: 0,
+        ..Default::default()
     });
 
-    let filename = if let Some(filename) = std::env::args().nth(1) {
-        filename
-    } else {
-        panic!("Invalid argument");
-    };
+    let filename = std::env::args()
+        .nth(1)
+        .expect("Missing VDB filename as first argument");
 
     let f = File::open(filename).unwrap();
     let mut reader = BufReader::new(f);
@@ -82,9 +79,6 @@ fn setup(
                             c * 0.01,
                             (c + bevy::prelude::Vec3::new(1.0, 1.0, 1.0)) * 0.01,
                             u32::from_le_bytes(f32::to_le_bytes(v.to_f32())),
-                            // v,
-                            true,
-                            idx as u16,
                         ));
                     }
                 } else {
@@ -123,13 +117,11 @@ fn setup(
 
     commands
         .spawn(Camera3dBundle::default())
-        .insert(FpsCameraBundle::new(
-            FpsCameraController {
-                translate_sensitivity: 2.0,
-                ..Default::default()
-            },
+        .insert(UnrealCameraBundle::new(
+            UnrealCameraController::default(),
             Vec3::new(0.0, 1.0, 10.0),
-            Vec3::new(0.0, 0.0, 0.0),
+            Vec3::ZERO,
+            Vec3::Y,
         ));
 }
 

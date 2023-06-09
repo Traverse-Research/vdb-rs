@@ -462,6 +462,7 @@ fn read_grid_impl<R: Read + Seek, ValueTy: Pod + std::fmt::Debug>(
         Ok(Grid {
             tree,
             transform,
+            header,
             grid_descriptor: gd,
         })
     } else {

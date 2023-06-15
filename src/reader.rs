@@ -260,7 +260,12 @@ fn read_compressed<R: Read + Seek, T: Pod>(
         && std::any::TypeId::of::<T>() == std::any::TypeId::of::<f32>()
     {
         let data = read_compressed_data::<_, f16>(reader, archive, gd, count)?;
-        bytemuck::cast_vec(data.into_iter().map(|v| v.to_f32()).collect::<Vec<f32>>())
+        bytemuck::cast_vec(data.into_iter().map(f16::to_f32).collect::<Vec<f32>>())
+    } else if !gd.meta_data.is_half_float()
+        && std::any::TypeId::of::<T>() == std::any::TypeId::of::<f16>()
+    {
+        let data = read_compressed_data::<_, f32>(reader, archive, gd, count)?;
+        bytemuck::cast_vec(data.into_iter().map(f16::from_f32).collect::<Vec<_>>())
     } else {
         read_compressed_data(reader, archive, gd, count)?
     };

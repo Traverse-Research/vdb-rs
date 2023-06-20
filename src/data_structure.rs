@@ -81,13 +81,17 @@ where
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct GridDescriptor {
     pub name: String,
-    pub grid_type: String,
+    /// If not empty, the name of another grid that shares this grid's tree
     pub instance_parent: String,
+    pub grid_type: String,
+    /// Location in the stream where the grid data is stored
     pub grid_pos: u64,
+    /// Location in the stream where the grid blocks are stored
     pub block_pos: u64,
+    /// Location in the stream where the next grid descriptor begins
     pub end_pos: u64,
     pub compression: Compression,
     pub meta_data: Metadata,
@@ -109,7 +113,7 @@ impl GridDescriptor {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Metadata(pub HashMap<String, MetadataValue>);
 
 impl Metadata {
@@ -118,11 +122,13 @@ impl Metadata {
     }
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum MetadataValue {
     String(String),
     Vec3i(glam::IVec3),
+    I32(i32),
     I64(i64),
+    Float(f32),
     Bool(bool),
     Unknown { name: String, data: Vec<u8> },
 }
@@ -254,12 +260,19 @@ bitflags! {
 
 #[derive(Debug)]
 pub struct ArchiveHeader {
+    /// The version of the file that was read
     pub file_version: u32,
+    /// The version of the library that was used to create the file that was read
     pub library_version_major: u32,
     pub library_version_minor: u32,
-    pub has_grid_offsets: bool,
-    pub compression: Compression,
+    /// Unique tag, a random 16-byte (128-bit) value, stored as a string format.
     pub guid: String,
-    pub meta_data: Metadata,
+    /// Flag indicating whether the input stream contains grid offsets and therefore supports partial reading
+    pub has_grid_offsets: bool,
+    /// Flags indicating whether and how the data stream is compressed
+    pub compression: Compression,
+    /// the number of grids on the input stream
     pub grid_count: u32,
+    /// The metadata for the input stream
+    pub meta_data: Metadata,
 }

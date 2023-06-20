@@ -43,8 +43,6 @@ and displaying correctly in the `bevy` example that's provided with this library
 Most of these errors seem to be related to the lack of Multi-Pass I/O, though most need to be investigated.
 
 1. no visuals: "smoke2.vdb-1.0.0/smoke2.vdb"
-1. parse error: "torus.vdb-1.0.0/torus.vdb" InvalidNodeMetadata
-1. parse erorr: "venusstatue.vdb-1.0.0/venusstatue.vdb" InvalidNodeMetadata
 1. parse error: "boat_points.vdb-1.0.0/boat_points.vdb" InvalidCompression
 1. parse error: "bunny_points.vdb-1.0.0/bunny_points.vdb" InvalidCompression
 1. parse error: "sphere_points.vdb-1.0.0/sphere_points.vdb" InvalidCompression

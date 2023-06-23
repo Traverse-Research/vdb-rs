@@ -344,7 +344,7 @@ fn read_metadata<R: Read + Seek>(reader: &mut R) -> Result<Metadata, ParseError>
     Ok(meta_data)
 }
 
-fn read_tree_topology<R: Read + Seek, ValueTy: Pod + std::fmt::Debug>(
+fn read_tree_topology<R: Read + Seek, ValueTy: Pod>(
     header: &ArchiveHeader,
     gd: &GridDescriptor,
     reader: &mut R,
@@ -417,7 +417,7 @@ fn read_tree_topology<R: Read + Seek, ValueTy: Pod + std::fmt::Debug>(
     Ok(Tree { root_nodes })
 }
 
-fn read_tree_data<R: Read + Seek, ValueTy: Pod + std::fmt::Debug>(
+fn read_tree_data<R: Read + Seek, ValueTy: Pod>(
     header: &ArchiveHeader,
     gd: &GridDescriptor,
     reader: &mut R,
@@ -454,7 +454,7 @@ fn read_tree_data<R: Read + Seek, ValueTy: Pod + std::fmt::Debug>(
     Ok(())
 }
 
-fn read_grid_impl<R: Read + Seek, ValueTy: Pod + std::fmt::Debug>(
+fn read_grid_impl<R: Read + Seek, ValueTy: Pod>(
     header: ArchiveHeader,
     reader: &mut R,
     gd: GridDescriptor,
@@ -475,7 +475,7 @@ fn read_grid_impl<R: Read + Seek, ValueTy: Pod + std::fmt::Debug>(
     }
 }
 
-fn read_grid<R: Read + Seek, ExpectedTy: Pod + std::fmt::Debug>(
+fn read_grid<R: Read + Seek, ExpectedTy: Pod>(
     header: ArchiveHeader,
     reader: &mut R,
 ) -> Result<Grid<ExpectedTy>, ParseError> {
@@ -512,7 +512,7 @@ fn read_grid<R: Read + Seek, ExpectedTy: Pod + std::fmt::Debug>(
     read_grid_impl::<_, ExpectedTy>(header, reader, gd)
 }
 
-pub fn read_vdb<R: Read + Seek, ExpectedTy: Pod + std::fmt::Debug>(
+pub fn read_vdb<R: Read + Seek, ExpectedTy: Pod>(
     reader: &mut R,
 ) -> Result<Grid<ExpectedTy>, ParseError> {
     let magic = reader.read_u64::<LittleEndian>()?;

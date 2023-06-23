@@ -475,7 +475,7 @@ fn read_grid_impl<R: Read + Seek, ValueTy: Pod>(
     }
 }
 
-fn read_grid<R: Read + Seek, ExpectedTy: Pod >(
+fn read_grid<R: Read + Seek, ExpectedTy: Pod>(
     header: ArchiveHeader,
     reader: &mut R,
 ) -> Result<Grid<ExpectedTy>, ParseError> {

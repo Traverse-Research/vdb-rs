@@ -4,7 +4,7 @@ use bevy_aabb_instancing::{
     VertexPullingRenderPlugin, COLOR_MODE_SCALAR_HUE,
 };
 use smooth_bevy_cameras::{controllers::unreal::*, LookTransformPlugin};
-use vdb_rs::{Index, Node, VdbReader};
+use vdb_rs::{Index, Node, VdbReader}; (using iterator now)
 
 use std::{error::Error, fs::File, io::BufReader};
 
@@ -27,12 +27,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 /// set up a simple 3D scene
-fn setup(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut color_options_map: ResMut<CuboidMaterialMap>,
-) {
+fn setup(mut commands: Commands, mut color_options_map: ResMut<CuboidMaterialMap>) {
     let color_options_id = color_options_map.push(CuboidMaterial {
         color_mode: COLOR_MODE_SCALAR_HUE,
         scalar_hue: ScalarHueOptions {
@@ -63,56 +58,21 @@ fn setup(
 
     let grid = vdb_reader.read_grid::<half::f16>(&grid_to_load).unwrap();
     let tree = grid.tree;
-
-    let mesh = meshes.add(Mesh::from(shape::Cube { size: 0.01 }));
-    let material = materials.add(Color::rgb(0.8, 0.7, 0.6).into());
-
-    for root_idx in 0..tree.root_nodes.len() {
-        let node_5 = &tree.root_nodes[root_idx];
-        for idx in node_5.child_mask.iter_ones() {
-            let node_4 = node_5.nodes.get(&(idx as u32)).unwrap();
-
-            let mut instances = vec![];
-
-            for idx in node_4.child_mask.iter_ones() {
-                if true {
-                    let node_3 = node_4.nodes.get(&(idx as u32)).unwrap();
-
-                    for idx in node_3.value_mask.iter_ones() {
-                        let v = node_3.buffer[idx];
-                        let global_coord = node_3.offset_to_global_coord(Index(idx as u32));
-
-                        let c = global_coord.0.as_vec3();
-                        let c = bevy::prelude::Vec3::new(c.x, c.y, c.z);
-                        instances.push(Cuboid::new(
-                            c * 0.01,
-                            (c + bevy::prelude::Vec3::new(1.0, 1.0, 1.0)) * 0.01,
-                            u32::from_le_bytes(f32::to_le_bytes(v.to_f32())),
-                        ));
-                    }
-                } else {
-                    let global_coord = node_4.offset_to_global_coord(Index(idx as u32));
-
-                    commands.spawn(PbrBundle {
-                        mesh: mesh.clone(),
-                        material: material.clone(),
-                        transform: Transform::from_xyz(
-                            global_coord.0.x as f32 / 224.0,
-                            global_coord.0.y as f32 / 224.0,
-                            global_coord.0.z as f32 / 224.0,
-                        ),
-                        ..default()
-                    });
-                }
-            }
-
-            let cuboids = Cuboids::new(instances);
-            let aabb = cuboids.aabb();
-            commands
-                .spawn(SpatialBundle::default())
-                .insert((cuboids, aabb, color_options_id));
-        }
-    }
+    let instances: Vec<Cuboid> = grid
+        .iter()
+        .map(|(pos, voxel)| {
+            Cuboid::new(
+                pos * 0.1,
+                (pos + Vec3::new(1.0, 1.0, 1.0)) * 0.1,
+                u32::from_le_bytes(f32::to_le_bytes(voxel.to_f32())),
+            )
+        })
+        .collect();
+    let cuboids = Cuboids::new(instances);
+    let aabb = cuboids.aabb();
+    commands
+        .spawn(SpatialBundle::default())
+        .insert((cuboids, aabb, color_options_id));
 
     commands.spawn(PointLightBundle {
         point_light: PointLight {

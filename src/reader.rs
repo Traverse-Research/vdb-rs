@@ -52,6 +52,30 @@ pub enum ParseError {
     IoError(#[from] std::io::Error),
 }
 
+fn read_string<R: Read + Seek>(reader: &mut R, len: usize) -> Result<String, ParseError> {
+    let mut string = String::with_capacity(len);
+    for _ in 0..len {
+        let c = reader.read_u8()? as char;
+        string.push(c);
+    }
+    Ok(string)
+}
+
+fn read_d_vec3<R: Read + Seek>(reader: &mut R) -> Result<glam::DVec3, ParseError> {
+    let x = reader.read_f64::<LittleEndian>()?;
+    let y = reader.read_f64::<LittleEndian>()?;
+    let z = reader.read_f64::<LittleEndian>()?;
+    Ok(glam::DVec3::new(x, y, z))
+}
+
+fn read_i_vec3<R: Read + Seek>(reader: &mut R) -> Result<glam::IVec3, ParseError> {
+    let x = reader.read_i32::<LittleEndian>()?;
+    let y = reader.read_i32::<LittleEndian>()?;
+    let z = reader.read_i32::<LittleEndian>()?;
+
+    Ok(glam::IVec3::new(x, y, z))
+}
+
 #[derive(Debug)]
 pub struct VdbReader<R: Read + Seek> {
     reader: R,
@@ -618,30 +642,6 @@ impl<R: Read + Seek> VdbReader<R> {
 
         Ok(result)
     }
-}
-
-fn read_string<R: Read + Seek>(reader: &mut R, len: usize) -> Result<String, ParseError> {
-    let mut string = String::with_capacity(len);
-    for _ in 0..len {
-        let c = reader.read_u8()? as char;
-        string.push(c);
-    }
-    Ok(string)
-}
-
-fn read_d_vec3<R: Read + Seek>(reader: &mut R) -> Result<glam::DVec3, ParseError> {
-    let x = reader.read_f64::<LittleEndian>()?;
-    let y = reader.read_f64::<LittleEndian>()?;
-    let z = reader.read_f64::<LittleEndian>()?;
-    Ok(glam::DVec3::new(x, y, z))
-}
-
-fn read_i_vec3<R: Read + Seek>(reader: &mut R) -> Result<glam::IVec3, ParseError> {
-    let x = reader.read_i32::<LittleEndian>()?;
-    let y = reader.read_i32::<LittleEndian>()?;
-    let z = reader.read_i32::<LittleEndian>()?;
-
-    Ok(glam::IVec3::new(x, y, z))
 }
 
 impl TryFrom<u8> for NodeMetaData {

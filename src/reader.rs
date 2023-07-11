@@ -47,7 +47,7 @@ pub enum ParseError {
     #[error("Unsupported Blosc format")]
     UnsupportedBloscFormat,
     #[error("Invalid grid name: {0}.")]
-    InvalidGridName(&'static str),
+    InvalidGridName(String),
     #[error("IoError")]
     IoError(#[from] std::io::Error),
 }
@@ -155,10 +155,10 @@ impl<R: Read + Seek> VdbReader<R> {
 
     pub fn read_grid<ExpectedTy: Pod>(
         &mut self,
-        name: &'static str,
+        name: &str,
     ) -> Result<Grid<ExpectedTy>, ParseError> {
         let grid_descriptor = self.grid_descriptors.get(name).cloned();
-        let gd = grid_descriptor.ok_or(ParseError::InvalidGridName(name))?;
+        let gd = grid_descriptor.ok_or(ParseError::InvalidGridName(name.to_owned()))?;
         Self::read_grid_internal(&self.header, &mut self.reader, gd)
     }
 

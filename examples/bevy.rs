@@ -51,7 +51,17 @@ fn setup(
 
     let f = File::open(filename).unwrap();
     let mut vdb_reader = VdbReader::new(BufReader::new(f)).unwrap();
-    let grid = vdb_reader.read_grid::<half::f16>("density").unwrap();
+    let grid_names = vdb_reader.available_grids();
+
+    let grid_to_load = std::env::args().nth(2).unwrap_or_else(|| {
+        println!(
+            "Grid name not specified, defaulting to first available grid.\nAvailable grids: {:?}",
+            grid_names
+        );
+        grid_names.first().cloned().unwrap_or(String::new())
+    });
+
+    let grid = vdb_reader.read_grid::<half::f16>(&grid_to_load).unwrap();
     let tree = grid.tree;
 
     let mesh = meshes.add(Mesh::from(shape::Cube { size: 0.01 }));

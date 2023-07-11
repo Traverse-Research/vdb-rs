@@ -247,7 +247,7 @@ pub enum NodeMetaData {
 }
 
 bitflags! {
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub struct Compression: u32 {
         const NONE = 0;
         const ZIP = 0x1;
@@ -257,7 +257,7 @@ bitflags! {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct ArchiveHeader {
     /// The version of the file that was read
     pub file_version: u32,

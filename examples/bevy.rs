@@ -133,12 +133,3 @@ fn setup(
             Vec3::Y,
         ));
 }
-
-// odd / broken?
-// no visuals: "smoke2.vdb-1.0.0\smoke2.vdb"
-// parse error: "torus.vdb-1.0.0\torus.vdb" InvalidNodeMetadata
-// parse erorr: "venusstatue.vdb-1.0.0\venusstatue.vdb" InvalidNodeMetadata
-// parse error: "boat_points.vdb-1.0.0\boat_points.vdb" InvalidCompression
-// parse error: "bunny_points.vdb-1.0.0\bunny_points.vdb" InvalidCompression
-// parse error: "sphere_points.vdb-1.0.0\sphere_points.vdb" InvalidCompression
-// parse error: "waterfall_points.vdb-1.0.0\waterfall_points.vdb" InvalidCompression

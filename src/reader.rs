@@ -56,7 +56,7 @@ pub enum ParseError {
 pub struct VdbReader<R: Read + Seek> {
     reader: R,
     pub header: ArchiveHeader,
-    pub grid_descriptors: Vec<GridDescriptor>,
+    pub grid_descriptors: HashMap<String, GridDescriptor>,
 }
 
 impl<R: Read + Seek> VdbReader<R> {
@@ -133,14 +133,13 @@ impl<R: Read + Seek> VdbReader<R> {
         &mut self,
         name: &'static str,
     ) -> Result<Grid<ExpectedTy>, ParseError> {
-        let grid_descriptor = self
-            .grid_descriptors
-            .iter()
-            .find(|gd| gd.name == name)
-            .cloned();
-
+        let grid_descriptor = self.grid_descriptors.get(name).cloned();
         let gd = grid_descriptor.ok_or(ParseError::InvalidGridName(name))?;
         Self::read_grid_internal(&self.header, &mut self.reader, gd)
+    }
+
+    pub fn available_grids(&self) -> Vec<String> {
+        self.grid_descriptors.keys().cloned().collect()
     }
 
     fn read_name(reader: &mut R) -> Result<String, ParseError> {
@@ -573,11 +572,11 @@ impl<R: Read + Seek> VdbReader<R> {
     fn read_grid_descriptors(
         header: &ArchiveHeader,
         reader: &mut R,
-    ) -> Result<Vec<GridDescriptor>, ParseError> {
+    ) -> Result<HashMap<String, GridDescriptor>, ParseError> {
         // Should be guaranteed by minimum file version
         assert!(header.has_grid_offsets);
 
-        let mut result = vec![];
+        let mut result = HashMap::new();
         for _ in 0..header.grid_count {
             let name = Self::read_name(reader)?;
             let grid_type = Self::read_name(reader)?;
@@ -593,7 +592,7 @@ impl<R: Read + Seek> VdbReader<R> {
             let end_pos = reader.read_u64::<LittleEndian>()?;
 
             let mut gd = GridDescriptor {
-                name,
+                name: name.clone(),
                 grid_type,
                 instance_parent,
                 grid_pos,
@@ -609,7 +608,10 @@ impl<R: Read + Seek> VdbReader<R> {
             }
             gd.meta_data = Self::read_metadata(reader)?;
 
-            result.push(gd);
+            assert!(
+                result.insert(name, gd).is_none(),
+                "Name clash found in VDB grids"
+            );
 
             reader.seek(SeekFrom::Start(end_pos))?;
         }

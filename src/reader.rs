@@ -46,8 +46,8 @@ pub enum ParseError {
     InvalidBloscData,
     #[error("Unsupported Blosc format")]
     UnsupportedBloscFormat,
-    #[error("Missing density grid data.")]
-    MissingDensityData,
+    #[error("Invalid grid name: {0}.")]
+    InvalidGridName(&'static str),
     #[error("IoError")]
     IoError(#[from] std::io::Error),
 }
@@ -131,19 +131,16 @@ impl<R: Read + Seek> VdbReader<R> {
 
     pub fn read_grid<ExpectedTy: Pod>(
         &mut self,
-        name: &str,
+        name: &'static str,
     ) -> Result<Grid<ExpectedTy>, ParseError> {
-        let density_grid_descriptor = self
+        let grid_descriptor = self
             .grid_descriptors
             .iter()
-            .find(|gd| gd.name.contains(name))
+            .find(|gd| gd.name == name)
             .cloned();
 
-        if let Some(gd) = density_grid_descriptor {
-            Self::read_grid_internal(&self.header, &mut self.reader, gd)
-        } else {
-            Err(ParseError::MissingDensityData)
-        }
+        let gd = grid_descriptor.ok_or(ParseError::InvalidGridName(name))?;
+        Self::read_grid_internal(&self.header, &mut self.reader, gd)
     }
 
     fn read_name(reader: &mut R) -> Result<String, ParseError> {

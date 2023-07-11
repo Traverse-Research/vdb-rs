@@ -158,7 +158,7 @@ impl<R: Read + Seek> VdbReader<R> {
         name: &str,
     ) -> Result<Grid<ExpectedTy>, ParseError> {
         let grid_descriptor = self.grid_descriptors.get(name).cloned();
-        let gd = grid_descriptor.ok_or(ParseError::InvalidGridName(name.to_owned()))?;
+        let gd = grid_descriptor.ok_or_else(|| ParseError::InvalidGridName(name.to_owned()))?;
         Self::read_grid_internal(&self.header, &mut self.reader, gd)
     }
 

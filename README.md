@@ -20,7 +20,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-vdb-rs = "0.3.0"
+vdb-rs = "0.4.0"
 ```
 
 This crate currently only supports VDB reading and parsing of a relatively large section of the VDB test assets, while it currently

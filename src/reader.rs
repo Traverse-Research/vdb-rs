@@ -100,7 +100,7 @@ impl<R: Read + Seek> VdbReader<R> {
         let guid = if file_version >= OPENVDB_FILE_VERSION_BOOST_UUID {
             // UUID is stored as fixed-length ASCII string
             // The extra 4 bytes are for the hyphens.
-            Self::read_string(&mut reader, 36)?
+            read_string(&mut reader, 36)?
         } else {
             // Older versions stored the UUID as a byte string.
             todo!("File version {}", file_version);
@@ -146,33 +146,9 @@ impl<R: Read + Seek> VdbReader<R> {
         }
     }
 
-    fn read_string(reader: &mut R, len: usize) -> Result<String, ParseError> {
-        let mut string = String::with_capacity(len);
-        for _ in 0..len {
-            let c = reader.read_u8()? as char;
-            string.push(c);
-        }
-        Ok(string)
-    }
-
     fn read_name(reader: &mut R) -> Result<String, ParseError> {
         let len = reader.read_u32::<LittleEndian>()? as usize;
-        Self::read_string(reader, len)
-    }
-
-    fn read_d_vec3(reader: &mut R) -> Result<glam::DVec3, ParseError> {
-        let x = reader.read_f64::<LittleEndian>()?;
-        let y = reader.read_f64::<LittleEndian>()?;
-        let z = reader.read_f64::<LittleEndian>()?;
-        Ok(glam::DVec3::new(x, y, z))
-    }
-
-    fn read_i_vec3(reader: &mut R) -> Result<glam::IVec3, ParseError> {
-        let x = reader.read_i32::<LittleEndian>()?;
-        let y = reader.read_i32::<LittleEndian>()?;
-        let z = reader.read_i32::<LittleEndian>()?;
-
-        Ok(glam::IVec3::new(x, y, z))
+        read_string(reader, len)
     }
 
     fn read_transform(reader: &mut R) -> Result<Map, ParseError> {
@@ -180,19 +156,19 @@ impl<R: Read + Seek> VdbReader<R> {
 
         Ok(match name.as_str() {
             "UniformScaleMap" => Map::UniformScaleMap {
-                scale_values: Self::read_d_vec3(reader)?,
-                voxel_size: Self::read_d_vec3(reader)?,
-                scale_values_inverse: Self::read_d_vec3(reader)?,
-                inv_scale_sqr: Self::read_d_vec3(reader)?,
-                inv_twice_scale: Self::read_d_vec3(reader)?,
+                scale_values: read_d_vec3(reader)?,
+                voxel_size: read_d_vec3(reader)?,
+                scale_values_inverse: read_d_vec3(reader)?,
+                inv_scale_sqr: read_d_vec3(reader)?,
+                inv_twice_scale: read_d_vec3(reader)?,
             },
             "UniformScaleTranslateMap" | "ScaleTranslateMap" => Map::ScaleTranslateMap {
-                translation: Self::read_d_vec3(reader)?,
-                scale_values: Self::read_d_vec3(reader)?,
-                voxel_size: Self::read_d_vec3(reader)?,
-                scale_values_inverse: Self::read_d_vec3(reader)?,
-                inv_scale_sqr: Self::read_d_vec3(reader)?,
-                inv_twice_scale: Self::read_d_vec3(reader)?,
+                translation: read_d_vec3(reader)?,
+                scale_values: read_d_vec3(reader)?,
+                voxel_size: read_d_vec3(reader)?,
+                scale_values_inverse: read_d_vec3(reader)?,
+                inv_scale_sqr: read_d_vec3(reader)?,
+                inv_twice_scale: read_d_vec3(reader)?,
             },
             v => panic!("Not supported {}", v),
         })
@@ -411,7 +387,7 @@ impl<R: Read + Seek> VdbReader<R> {
             meta_data.0.insert(
                 name,
                 match data_type.as_str() {
-                    "string" => MetadataValue::String(Self::read_string(reader, len as usize)?),
+                    "string" => MetadataValue::String(read_string(reader, len as usize)?),
                     "bool" => {
                         let val = reader.read_u8()?;
                         MetadataValue::Bool(val != 0)
@@ -428,7 +404,7 @@ impl<R: Read + Seek> VdbReader<R> {
                         let val = reader.read_f32::<LittleEndian>()?;
                         MetadataValue::Float(val)
                     }
-                    "vec3i" => MetadataValue::Vec3i(Self::read_i_vec3(reader)?),
+                    "vec3i" => MetadataValue::Vec3i(read_i_vec3(reader)?),
                     name => {
                         let mut data = vec![0u8; len as usize];
                         reader.read_exact(&mut data)?;
@@ -467,13 +443,13 @@ impl<R: Read + Seek> VdbReader<R> {
         let mut root_nodes = vec![];
 
         for _tile_idx in 0..number_of_tiles {
-            let _vec = Self::read_i_vec3(reader)?;
+            let _vec = read_i_vec3(reader)?;
             let _value = reader.read_u32::<LittleEndian>()?;
             let _active = reader.read_u8()?;
         }
 
         for _root_idx in 0..number_of_root_nodes {
-            let origin = Self::read_i_vec3(reader)?;
+            let origin = read_i_vec3(reader)?;
 
             let node_5 =
                 Self::read_node_header::<ValueTy>(reader, 5 /* 32 * 32 * 32 */, header, gd)?;
@@ -549,7 +525,7 @@ impl<R: Read + Seek> VdbReader<R> {
                     reader.read_u64_into::<LittleEndian>(value_mask.as_raw_mut_slice())?;
 
                     if header.file_version < OPENVDB_FILE_VERSION_NODE_MASK_COMPRESSION {
-                        node_3.origin = Self::read_i_vec3(reader)?;
+                        node_3.origin = read_i_vec3(reader)?;
                         let num_buffers = reader.read_u8()?;
                         assert_eq!(num_buffers, 1);
                     }
@@ -643,6 +619,30 @@ impl<R: Read + Seek> VdbReader<R> {
 
         Ok(result)
     }
+}
+
+fn read_string<R: Read + Seek>(reader: &mut R, len: usize) -> Result<String, ParseError> {
+    let mut string = String::with_capacity(len);
+    for _ in 0..len {
+        let c = reader.read_u8()? as char;
+        string.push(c);
+    }
+    Ok(string)
+}
+
+fn read_d_vec3<R: Read + Seek>(reader: &mut R) -> Result<glam::DVec3, ParseError> {
+    let x = reader.read_f64::<LittleEndian>()?;
+    let y = reader.read_f64::<LittleEndian>()?;
+    let z = reader.read_f64::<LittleEndian>()?;
+    Ok(glam::DVec3::new(x, y, z))
+}
+
+fn read_i_vec3<R: Read + Seek>(reader: &mut R) -> Result<glam::IVec3, ParseError> {
+    let x = reader.read_i32::<LittleEndian>()?;
+    let y = reader.read_i32::<LittleEndian>()?;
+    let z = reader.read_i32::<LittleEndian>()?;
+
+    Ok(glam::IVec3::new(x, y, z))
 }
 
 impl TryFrom<u8> for NodeMetaData {

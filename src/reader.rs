@@ -13,7 +13,9 @@ use byteorder::{LittleEndian, ReadBytesExt};
 use half::f16;
 use log::{trace, warn};
 use std::collections::HashMap;
-use std::io::{Read, Seek};
+use std::io::{Read, Seek, SeekFrom};
+
+pub const OPENVDB_MIN_SUPPORTED_VERSION: u32 = OPENVDB_FILE_VERSION_ROOTNODE_MAP;
 
 pub const OPENVDB_FILE_VERSION_ROOTNODE_MAP: u32 = 213;
 pub const OPENVDB_FILE_VERSION_INTERNALNODE_COMPRESSION: u32 = 214;
@@ -34,6 +36,8 @@ pub const OPENVDB_FILE_VERSION_MULTIPASS_IO: u32 = 224;
 pub enum ParseError {
     #[error("Magic bytes mismatched")]
     MagicMismatch,
+    #[error("Unsupported VDB version")]
+    UnsupportedVersion(u32),
     #[error("Invalid compression {0}")]
     InvalidCompression(u32),
     #[error("Invalid node meta-data: {0}")]
@@ -42,6 +46,8 @@ pub enum ParseError {
     InvalidBloscData,
     #[error("Unsupported Blosc format")]
     UnsupportedBloscFormat,
+    #[error("Missing density grid data.")]
+    MissingDensityData,
     #[error("IoError")]
     IoError(#[from] std::io::Error),
 }
@@ -316,9 +322,17 @@ fn read_metadata<R: Read + Seek>(reader: &mut R) -> Result<Metadata, ParseError>
                     let val = reader.read_u8()?;
                     MetadataValue::Bool(val != 0)
                 }
+                "int32" => {
+                    let val = reader.read_i32::<LittleEndian>()?;
+                    MetadataValue::I32(val)
+                }
                 "int64" => {
                     let val = reader.read_i64::<LittleEndian>()?;
                     MetadataValue::I64(val)
+                }
+                "float" => {
+                    let val = reader.read_f32::<LittleEndian>()?;
+                    MetadataValue::Float(val)
                 }
                 "vec3i" => MetadataValue::Vec3i(read_i_vec3(reader)?),
                 name => {
@@ -454,11 +468,18 @@ fn read_tree_data<R: Read + Seek, ValueTy: Pod>(
     Ok(())
 }
 
-fn read_grid_impl<R: Read + Seek, ValueTy: Pod>(
+fn read_grid<R: Read + Seek, ValueTy: Pod>(
     header: ArchiveHeader,
     reader: &mut R,
     gd: GridDescriptor,
 ) -> Result<Grid<ValueTy>, ParseError> {
+    gd.seek_to_grid(reader).unwrap();
+    // Having to re-do this is ugly, as we already did this while parsing the descriptor
+    if header.file_version >= OPENVDB_FILE_VERSION_NODE_MASK_COMPRESSION {
+        let _: Compression = reader.read_u32::<LittleEndian>()?.try_into().unwrap();
+    }
+    let _ = read_metadata(reader).unwrap();
+
     if header.file_version >= OPENVDB_FILE_VERSION_GRID_INSTANCING {
         let transform = read_transform(reader)?;
         let mut tree = read_tree_topology::<_, ValueTy>(&header, &gd, reader)?;
@@ -475,41 +496,51 @@ fn read_grid_impl<R: Read + Seek, ValueTy: Pod>(
     }
 }
 
-fn read_grid<R: Read + Seek, ExpectedTy: Pod>(
-    header: ArchiveHeader,
+fn read_grid_descriptors<R: Read + Seek>(
+    header: &ArchiveHeader,
     reader: &mut R,
-) -> Result<Grid<ExpectedTy>, ParseError> {
-    let name = read_name(reader)?;
-    let grid_type = read_name(reader)?;
+) -> Result<Vec<GridDescriptor>, ParseError> {
+    // Should be guaranteed by minimum file version
+    assert!(header.has_grid_offsets);
 
-    let instance_parent = if header.file_version >= OPENVDB_FILE_VERSION_GRID_INSTANCING {
-        read_name(reader)?
-    } else {
-        todo!("instance_parent, file version: {}", header.file_version)
-    };
+    let mut result = vec![];
+    for _ in 0..header.grid_count {
+        let name = read_name(reader)?;
+        let grid_type = read_name(reader)?;
 
-    let grid_pos = reader.read_u64::<LittleEndian>()?;
-    let block_pos = reader.read_u64::<LittleEndian>()?;
-    let end_pos = reader.read_u64::<LittleEndian>()?;
+        let instance_parent = if header.file_version >= OPENVDB_FILE_VERSION_GRID_INSTANCING {
+            read_name(reader)?
+        } else {
+            todo!("instance_parent, file version: {}", header.file_version)
+        };
 
-    let mut gd = GridDescriptor {
-        name,
-        grid_type,
-        instance_parent,
-        grid_pos,
-        block_pos,
-        end_pos,
-        compression: header.compression,
-        meta_data: Default::default(),
-    };
+        let grid_pos = reader.read_u64::<LittleEndian>()?;
+        let block_pos = reader.read_u64::<LittleEndian>()?;
+        let end_pos = reader.read_u64::<LittleEndian>()?;
 
-    gd.seek_to_grid(reader)?;
-    if header.file_version >= OPENVDB_FILE_VERSION_NODE_MASK_COMPRESSION {
-        gd.compression = reader.read_u32::<LittleEndian>()?.try_into()?;
+        let mut gd = GridDescriptor {
+            name,
+            grid_type,
+            instance_parent,
+            grid_pos,
+            block_pos,
+            end_pos,
+            compression: header.compression,
+            meta_data: Default::default(),
+        };
+
+        gd.seek_to_grid(reader)?;
+        if header.file_version >= OPENVDB_FILE_VERSION_NODE_MASK_COMPRESSION {
+            gd.compression = reader.read_u32::<LittleEndian>()?.try_into()?;
+        }
+        gd.meta_data = read_metadata(reader)?;
+
+        result.push(gd);
+
+        reader.seek(SeekFrom::Start(end_pos))?;
     }
-    gd.meta_data = read_metadata(reader)?;
 
-    read_grid_impl::<_, ExpectedTy>(header, reader, gd)
+    Ok(result)
 }
 
 pub fn read_vdb<R: Read + Seek, ExpectedTy: Pod>(
@@ -521,22 +552,42 @@ pub fn read_vdb<R: Read + Seek, ExpectedTy: Pod>(
     }
 
     let file_version = reader.read_u32::<LittleEndian>()?;
+    if file_version < OPENVDB_MIN_SUPPORTED_VERSION {
+        return Err(ParseError::UnsupportedVersion(file_version));
+    }
+
+    // Stored from version 211 onward, our minimum supported version is 213
     let library_version_major = reader.read_u32::<LittleEndian>()?;
     let library_version_minor = reader.read_u32::<LittleEndian>()?;
+
+    // Stored from version 212 onward, our minimum supported version is 213
     let has_grid_offsets = reader.read_u8()? == 1;
 
-    let compression = if (OPENVDB_FILE_VERSION_SELECTIVE_COMPRESSION
-        ..OPENVDB_FILE_VERSION_NODE_MASK_COMPRESSION)
+    // From version 222 on, compression information is stored per grid.
+    let mut compression = Compression::DEFAULT_COMPRESSION;
+    if file_version < OPENVDB_FILE_VERSION_BLOSC_COMPRESSION {
+        // Prior to the introduction of Blosc, ZLIB was the default compression scheme.
+        compression = Compression::ZIP | Compression::ACTIVE_MASK;
+    }
+
+    // [range_start, range_end)
+    if (OPENVDB_FILE_VERSION_SELECTIVE_COMPRESSION..OPENVDB_FILE_VERSION_NODE_MASK_COMPRESSION)
         .contains(&file_version)
     {
-        (reader.read_u8()? as u32).try_into()?
-    } else {
-        Compression::DEFAULT_COMPRESSION
-    };
+        let is_compressed = reader.read_u8()? == 1;
+        if is_compressed {
+            compression = Compression::ZIP;
+        } else {
+            compression = Compression::NONE;
+        }
+    }
 
     let guid = if file_version >= OPENVDB_FILE_VERSION_BOOST_UUID {
+        // UUID is stored as fixed-length ASCII string
+        // The extra 4 bytes are for the hyphens.
         read_string(reader, 36)?
     } else {
+        // Older versions stored the UUID as a byte string.
         todo!("File version {}", file_version);
     };
 
@@ -554,7 +605,21 @@ pub fn read_vdb<R: Read + Seek, ExpectedTy: Pod>(
         grid_count,
     };
 
-    read_grid(header, reader)
+    let descriptors = read_grid_descriptors(&header, reader)?;
+
+    // TODO: Support loading of specific grids
+    // Enforce loading of density grid for now.
+
+    let density_grid_descriptor = descriptors
+        .iter()
+        .find(|gd| gd.name.contains("density"))
+        .cloned();
+
+    if let Some(gd) = density_grid_descriptor {
+        read_grid(header, reader, gd)
+    } else {
+        Err(ParseError::MissingDensityData)
+    }
 }
 
 impl TryFrom<u8> for NodeMetaData {

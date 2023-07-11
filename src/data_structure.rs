@@ -11,7 +11,6 @@ use std::io::{Read, Seek, SeekFrom};
 pub struct Grid<ValueTy> {
     pub tree: Tree<ValueTy>,
     pub transform: Map,
-    pub header: ArchiveHeader,
     pub grid_descriptor: GridDescriptor,
 }
 

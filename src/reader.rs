@@ -633,8 +633,8 @@ impl<R: Read + Seek> VdbReader<R> {
             gd.meta_data = Self::read_metadata(reader)?;
 
             assert!(
-                result.insert(name, gd).is_none(),
-                "Name clash found in VDB grids"
+                result.insert(name.clone(), gd).is_none(),
+                "Grid named {name} already exists"
             );
 
             reader.seek(SeekFrom::Start(end_pos))?;

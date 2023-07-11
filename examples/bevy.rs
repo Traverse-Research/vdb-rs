@@ -4,7 +4,7 @@ use bevy_aabb_instancing::{
     VertexPullingRenderPlugin, COLOR_MODE_SCALAR_HUE,
 };
 use smooth_bevy_cameras::{controllers::unreal::*, LookTransformPlugin};
-use vdb_rs::{read_vdb, Index, Node};
+use vdb_rs::{Index, Node, VdbReader};
 
 use std::{error::Error, fs::File, io::BufReader};
 
@@ -50,9 +50,8 @@ fn setup(
         .expect("Missing VDB filename as first argument");
 
     let f = File::open(filename).unwrap();
-    let mut reader = BufReader::new(f);
-
-    let grid = read_vdb::<_, half::f16>(&mut reader).unwrap();
+    let mut vdb_reader = VdbReader::new(BufReader::new(f)).unwrap();
+    let grid = vdb_reader.read_grid::<half::f16>("density").unwrap();
     let tree = grid.tree;
 
     let mesh = meshes.add(Mesh::from(shape::Cube { size: 0.01 }));

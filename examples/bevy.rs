@@ -51,7 +51,17 @@ fn setup(
 
     let f = File::open(filename).unwrap();
     let mut vdb_reader = VdbReader::new(BufReader::new(f)).unwrap();
-    let grid = vdb_reader.read_grid::<half::f16>("density").unwrap();
+    let grid_names = vdb_reader.available_grids();
+
+    let grid_to_load = std::env::args().nth(2).unwrap_or_else(|| {
+        println!(
+            "Grid name not specified, defaulting to first available grid.\nAvailable grids: {:?}",
+            grid_names
+        );
+        grid_names.first().cloned().unwrap_or(String::new())
+    });
+
+    let grid = vdb_reader.read_grid::<half::f16>(&grid_to_load).unwrap();
     let tree = grid.tree;
 
     let mesh = meshes.add(Mesh::from(shape::Cube { size: 0.01 }));
@@ -123,12 +133,3 @@ fn setup(
             Vec3::Y,
         ));
 }
-
-// odd / broken?
-// no visuals: "smoke2.vdb-1.0.0\smoke2.vdb"
-// parse error: "torus.vdb-1.0.0\torus.vdb" InvalidNodeMetadata
-// parse erorr: "venusstatue.vdb-1.0.0\venusstatue.vdb" InvalidNodeMetadata
-// parse error: "boat_points.vdb-1.0.0\boat_points.vdb" InvalidCompression
-// parse error: "bunny_points.vdb-1.0.0\bunny_points.vdb" InvalidCompression
-// parse error: "sphere_points.vdb-1.0.0\sphere_points.vdb" InvalidCompression
-// parse error: "waterfall_points.vdb-1.0.0\waterfall_points.vdb" InvalidCompression

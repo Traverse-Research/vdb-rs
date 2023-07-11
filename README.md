@@ -40,10 +40,10 @@ Implementation of features however is use-case limited, so contributions in area
 These are test files from the OpenVDB website; <https://www.openvdb.org/download/>. Most file seem to be loading correctly
 and displaying correctly in the `bevy` example that's provided with this library.
 
-Most of these errors seem to be related to the lack of Multi-Pass I/O, though most need to be investigated.
+The only failing files are the ones containing a "points" grid.
+They all fail on `ParseError::InvalidNodeMetadata` which seem to be related to the lack of Multi-Pass I/O, though most need to be investigated.
 
-1. no visuals: "smoke2.vdb-1.0.0/smoke2.vdb"
-1. parse error: "boat_points.vdb-1.0.0/boat_points.vdb" InvalidCompression
-1. parse error: "bunny_points.vdb-1.0.0/bunny_points.vdb" InvalidCompression
-1. parse error: "sphere_points.vdb-1.0.0/sphere_points.vdb" InvalidCompression
-1. parse error: "waterfall_points.vdb-1.0.0/waterfall_points.vdb" InvalidCompression
+* "boat_points.vdb-1.0.0/boat_points.vdb" ("speedboat" grid loads correctly)
+* "bunny_points.vdb-1.0.0/bunny_points.vdb"
+* "sphere_points.vdb-1.0.0/sphere_points.vdb"
+* "waterfall_points.vdb-1.0.0/waterfall_points.vdb"

@@ -633,8 +633,8 @@ impl<R: Read + Seek> VdbReader<R> {
             }
             gd.meta_data = Self::read_metadata(reader)?;
 
-            // From what I read, embergen can export in both coordinate spaces, but the default should be Z up.
-            // This is not a guarantee then, but it's the only information we have... 🥲
+            // Embergen can export in both coordinate spaces, but the default should be Z up.
+            // This is not a guarantee then, but it's the only information we have...
             gd.is_z_up = gd
                 .meta_data
                 .0

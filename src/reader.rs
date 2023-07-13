@@ -624,6 +624,7 @@ impl<R: Read + Seek> VdbReader<R> {
                 end_pos,
                 compression: header.compression,
                 meta_data: Default::default(),
+                is_z_up: false,
             };
 
             gd.seek_to_grid(reader)?;
@@ -631,6 +632,23 @@ impl<R: Read + Seek> VdbReader<R> {
                 gd.compression = reader.read_u32::<LittleEndian>()?.try_into()?;
             }
             gd.meta_data = Self::read_metadata(reader)?;
+
+            // From what I read, embergen can export in both coordinate spaces, but the default should be Z up.
+            // This is not a guarantee then, but it's the only information we have... 🥲
+            gd.is_z_up = gd
+                .meta_data
+                .0
+                .get("embergen_version")
+                .is_some();
+
+            if let Some(MetadataValue::String(v)) =
+                gd.meta_data.0.get("creator")
+            {
+                if v.to_ascii_lowercase().contains("houdini") {
+                    // this should mean almost definitely Y-up ?
+                    gd.is_z_up = false;
+                }
+            }
 
             assert!(
                 result.insert(name.clone(), gd).is_none(),

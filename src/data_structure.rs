@@ -94,7 +94,7 @@ pub struct GridDescriptor {
     pub end_pos: u64,
     pub compression: Compression,
     pub meta_data: Metadata,
-    pub is_z_up: bool
+    pub is_z_up: bool,
 }
 
 impl GridDescriptor {

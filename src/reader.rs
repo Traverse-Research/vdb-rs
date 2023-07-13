@@ -635,15 +635,9 @@ impl<R: Read + Seek> VdbReader<R> {
 
             // Embergen can export in both coordinate spaces, but the default should be Z up.
             // This is not a guarantee then, but it's the only information we have...
-            gd.is_z_up = gd
-                .meta_data
-                .0
-                .get("embergen_version")
-                .is_some();
+            gd.is_z_up = gd.meta_data.0.get("embergen_version").is_some();
 
-            if let Some(MetadataValue::String(v)) =
-                gd.meta_data.0.get("creator")
-            {
+            if let Some(MetadataValue::String(v)) = gd.meta_data.0.get("creator") {
                 if v.to_ascii_lowercase().contains("houdini") {
                     // this should mean almost definitely Y-up ?
                     gd.is_z_up = false;

@@ -538,7 +538,7 @@ impl<R: Read + Seek> VdbReader<R> {
                 let node_4 = node_5.nodes.get_mut(&(idx as u32)).unwrap();
 
                 for idx in node_4.child_mask.iter_ones() {
-                    let mut node_3 = node_4.nodes.get_mut(&(idx as u32)).unwrap();
+                    let node_3 = node_4.nodes.get_mut(&(idx as u32)).unwrap();
 
                     let linear_dim = (1 << (3 * 3)) as usize;
                     let mut value_mask = bitvec![u64, Lsb0; 0; linear_dim];

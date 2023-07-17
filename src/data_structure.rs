@@ -3,7 +3,7 @@ use crate::transform::Map;
 use bitflags::bitflags;
 use bitvec::prelude::*;
 use bitvec::slice::IterOnes;
-use glam::{Vec3, IVec3};
+use glam::{IVec3, Vec3};
 use std::collections::HashMap;
 use std::io::{Read, Seek, SeekFrom};
 

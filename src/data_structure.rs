@@ -8,8 +8,8 @@ use std::collections::HashMap;
 use std::io::{Read, Seek, SeekFrom};
 
 #[derive(thiserror::Error, Debug)]
-pub enum MetadataError {
-    #[error("Field {0} not in grid")]
+pub enum GridMetadataError {
+    #[error("Field {0} not in grid metadata")]
     FieldNotPresent(String),
 }
 
@@ -34,18 +34,22 @@ impl<ValueTy> Grid<ValueTy> {
             node_3: None,
         }
     }
-    pub fn aabb_min(&self) -> Result<IVec3, MetadataError> {
+    pub fn aabb_min(&self) -> Result<IVec3, GridMetadataError> {
         // this field should always be present
         match self.grid_descriptor.meta_data.0["file_bbox_min"] {
             MetadataValue::Vec3i(v) => Ok(v),
-            _ => Err(MetadataError::FieldNotPresent("file_bbox_min".to_string())),
+            _ => Err(GridMetadataError::FieldNotPresent(
+                "file_bbox_min".to_string(),
+            )),
         }
     }
-    pub fn aabb_max(&self) -> Result<IVec3, MetadataError> {
+    pub fn aabb_max(&self) -> Result<IVec3, GridMetadataError> {
         // this field should always be present
         match self.grid_descriptor.meta_data.0["file_bbox_max"] {
             MetadataValue::Vec3i(v) => Ok(v),
-            _ => Err(MetadataError::FieldNotPresent("file_bbox_max".to_string())),
+            _ => Err(GridMetadataError::FieldNotPresent(
+                "file_bbox_max".to_string(),
+            )),
         }
     }
 }

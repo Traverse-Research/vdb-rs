@@ -4,7 +4,7 @@ use bevy_aabb_instancing::{
     VertexPullingRenderPlugin, COLOR_MODE_SCALAR_HUE,
 };
 use smooth_bevy_cameras::{controllers::unreal::*, LookTransformPlugin};
-use vdb_rs::{Index, Node, VdbReader}; (using iterator now)
+use vdb_rs::VdbReader;
 
 use std::{error::Error, fs::File, io::BufReader};
 
@@ -57,7 +57,6 @@ fn setup(mut commands: Commands, mut color_options_map: ResMut<CuboidMaterialMap
     });
 
     let grid = vdb_reader.read_grid::<half::f16>(&grid_to_load).unwrap();
-    let tree = grid.tree;
     let instances: Vec<Cuboid> = grid
         .iter()
         .map(|(pos, voxel)| {

@@ -28,6 +28,20 @@ impl<ValueTy> Grid<ValueTy> {
             node_3: None,
         }
     }
+    pub fn aabb_min(&self) -> Vec3 {
+        // this field should always be present
+        match self.grid_descriptor.meta_data.0["file_bbox_min"] {
+            MetadataValue::Vec3i(v) => glam::vec3(v.x as f32, v.y as f32, v.z as f32),
+            _ => unimplemented!(),
+        }
+    }
+    pub fn aabb_max(&self) -> Vec3 {
+        // this field should always be present
+        match self.grid_descriptor.meta_data.0["file_bbox_max"] {
+            MetadataValue::Vec3i(v) => glam::vec3(v.x as f32, v.y as f32, v.z as f32),
+            _ => unimplemented!(),
+        }
+    }
 }
 
 pub struct GridIter<'a, ValueTy> {

@@ -3,9 +3,15 @@ use crate::transform::Map;
 use bitflags::bitflags;
 use bitvec::prelude::*;
 use bitvec::slice::IterOnes;
-use glam::Vec3;
+use glam::{IVec3, Vec3};
 use std::collections::HashMap;
 use std::io::{Read, Seek, SeekFrom};
+
+#[derive(thiserror::Error, Debug)]
+pub enum GridMetadataError {
+    #[error("Field {0} not in grid metadata")]
+    FieldNotPresent(String),
+}
 
 #[derive(Debug)]
 pub struct Grid<ValueTy> {
@@ -26,6 +32,40 @@ impl<ValueTy> Grid<ValueTy> {
             node_5: None,
             node_4: None,
             node_3: None,
+        }
+    }
+
+    // below values should always be present, see https://github.com/AcademySoftwareFoundation/openvdb/blob/master/openvdb/openvdb/Grid.cc#L387
+    pub fn aabb_min(&self) -> Result<IVec3, GridMetadataError> {
+        match self.grid_descriptor.meta_data.0["file_bbox_min"] {
+            MetadataValue::Vec3i(v) => Ok(v),
+            _ => Err(GridMetadataError::FieldNotPresent(
+                "file_bbox_min".to_string(),
+            )),
+        }
+    }
+    pub fn aabb_max(&self) -> Result<IVec3, GridMetadataError> {
+        match self.grid_descriptor.meta_data.0["file_bbox_max"] {
+            MetadataValue::Vec3i(v) => Ok(v),
+            _ => Err(GridMetadataError::FieldNotPresent(
+                "file_bbox_max".to_string(),
+            )),
+        }
+    }
+    pub fn mem_bytes(&self) -> Result<i64, GridMetadataError> {
+        match self.grid_descriptor.meta_data.0["file_mem_bytes"] {
+            MetadataValue::I64(v) => Ok(v),
+            _ => Err(GridMetadataError::FieldNotPresent(
+                "file_mem_bytes".to_string(),
+            )),
+        }
+    }
+    pub fn voxel_count(&self) -> Result<i64, GridMetadataError> {
+        match self.grid_descriptor.meta_data.0["file_voxel_count"] {
+            MetadataValue::I64(v) => Ok(v),
+            _ => Err(GridMetadataError::FieldNotPresent(
+                "file_voxel_count".to_string(),
+            )),
         }
     }
 }

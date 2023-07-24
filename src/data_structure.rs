@@ -41,7 +41,7 @@ impl Grid {
             node_4: None,
             node_3: None,
 
-            phantom: PhantomData::default(),
+            phantom: PhantomData::<ValueTy>,
         }
     }
 
@@ -91,7 +91,7 @@ pub struct GridIter<'a, ValueTy> {
     node_4: Option<&'a Node4>,
     node_3: Option<&'a Node3>,
 
-    phantom: PhantomData<ValueTy>, // TODO: rm
+    phantom: PhantomData<ValueTy>,
 }
 
 impl<'a, ValueTy> Iterator for GridIter<'a, ValueTy>
@@ -104,9 +104,7 @@ where
         loop {
             if let (Some(idx), Some(node_3)) = (self.node_3_iter.next(), self.node_3) {
                 // TODO: Cast when GridIter is created? Not at every iteration? Or is that not an issue?
-                let typed_data_vec: Vec<ValueTy> =
-                    bytemuck::cast_slice::<u8, ValueTy>(&node_3.buffer).to_vec();
-                let v = typed_data_vec[idx];
+                let v = bytemuck::cast_slice::<u8, ValueTy>(&node_3.buffer)[idx];
                 let global_coord = node_3.offset_to_global_coord(Index(idx as u32));
                 let c = global_coord.0.as_vec3();
                 return Some((c, v));

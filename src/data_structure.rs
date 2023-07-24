@@ -3,9 +3,11 @@ use crate::transform::Map;
 use bitflags::bitflags;
 use bitvec::prelude::*;
 use bitvec::slice::IterOnes;
+use bytemuck::Pod;
 use glam::{IVec3, Vec3};
 use std::collections::HashMap;
 use std::io::{Read, Seek, SeekFrom};
+use std::marker::PhantomData;
 
 #[derive(thiserror::Error, Debug)]
 pub enum GridMetadataError {
@@ -13,15 +15,21 @@ pub enum GridMetadataError {
     FieldNotPresent(String),
 }
 
+pub enum DataType {
+    F32,
+    F16,
+    Float3,
+}
+
 #[derive(Debug)]
-pub struct Grid<ValueTy> {
-    pub tree: Tree<ValueTy>,
+pub struct Grid {
+    pub tree: Tree,
     pub transform: Map,
     pub grid_descriptor: GridDescriptor,
 }
 
-impl<ValueTy> Grid<ValueTy> {
-    pub fn iter(&self) -> GridIter<'_, ValueTy> {
+impl Grid {
+    pub fn iter<ValueTy: Pod>(&self) -> GridIter<'_, ValueTy> {
         GridIter {
             grid: self,
             root_idx: 0,
@@ -32,6 +40,8 @@ impl<ValueTy> Grid<ValueTy> {
             node_5: None,
             node_4: None,
             node_3: None,
+
+            phantom: PhantomData::default(),
         }
     }
 
@@ -71,27 +81,32 @@ impl<ValueTy> Grid<ValueTy> {
 }
 
 pub struct GridIter<'a, ValueTy> {
-    grid: &'a Grid<ValueTy>,
+    grid: &'a Grid,
     root_idx: usize,
     node_5_iter: IterOnes<'a, u64, Lsb0>,
     node_4_iter: IterOnes<'a, u64, Lsb0>,
     node_3_iter: IterOnes<'a, u64, Lsb0>,
 
-    node_5: Option<&'a Node5<ValueTy>>,
-    node_4: Option<&'a Node4<ValueTy>>,
-    node_3: Option<&'a Node3<ValueTy>>,
+    node_5: Option<&'a Node5>,
+    node_4: Option<&'a Node4>,
+    node_3: Option<&'a Node3>,
+
+    phantom: PhantomData<ValueTy>, // TODO: rm
 }
 
 impl<'a, ValueTy> Iterator for GridIter<'a, ValueTy>
 where
-    ValueTy: Copy,
+    ValueTy: Copy + Pod,
 {
     type Item = (Vec3, ValueTy);
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             if let (Some(idx), Some(node_3)) = (self.node_3_iter.next(), self.node_3) {
-                let v = node_3.buffer[idx];
+                // TODO: Cast when GridIter is created? Not at every iteration? Or is that not an issue?
+                let typed_data_vec: Vec<ValueTy> =
+                    bytemuck::cast_slice::<u8, ValueTy>(&node_3.buffer).to_vec();
+                let v = typed_data_vec[idx];
                 let global_coord = node_3.offset_to_global_coord(Index(idx as u32));
                 let c = global_coord.0.as_vec3();
                 return Some((c, v));
@@ -149,6 +164,27 @@ impl GridDescriptor {
         reader: &mut R,
     ) -> Result<u64, std::io::Error> {
         reader.seek(SeekFrom::Start(self.block_pos))
+    }
+
+    pub fn data_type(&self) -> DataType {
+        let type_string = self
+            .meta_data
+            .0
+            .get("value_type")
+            .expect("Can not extract Grid value type!");
+        if let MetadataValue::String(s) = type_string {
+            if s == "float" {
+                if self.meta_data.is_half_float() {
+                    DataType::F16
+                } else {
+                    DataType::F32
+                }
+            } else {
+                unimplemented!();
+            }
+        } else {
+            panic!("Expected value_type metadata as string format");
+        }
     }
 }
 
@@ -213,21 +249,21 @@ pub trait Node {
 }
 
 #[derive(Debug)]
-pub struct NodeHeader<ValueTy> {
+pub struct NodeHeader {
     pub child_mask: BitVec<u64, Lsb0>,
     pub value_mask: BitVec<u64, Lsb0>,
-    pub data: Vec<ValueTy>,
+    pub data: Vec<u8>,
     pub log_2_dim: u32,
 }
 
 #[derive(Debug)]
-pub struct Node3<ValueTy> {
-    pub buffer: Vec<ValueTy>,
+pub struct Node3 {
+    pub buffer: Vec<u8>, // bytes, need to be interpreted when reading
     pub value_mask: BitVec<u64, Lsb0>,
     pub origin: glam::IVec3,
 }
 
-impl<ValueTy> Node for Node3<ValueTy> {
+impl Node for Node3 {
     const LOG_2_DIM: u32 = 3;
     const TOTAL: u32 = 0;
 
@@ -237,14 +273,14 @@ impl<ValueTy> Node for Node3<ValueTy> {
 }
 
 #[derive(Debug)]
-pub struct Node4<ValueTy> {
+pub struct Node4 {
     pub child_mask: BitVec<u64, Lsb0>,
     pub value_mask: BitVec<u64, Lsb0>,
-    pub nodes: HashMap<u32, Node3<ValueTy>>,
+    pub nodes: HashMap<u32, Node3>,
     pub origin: glam::IVec3,
 }
 
-impl<ValueTy> Node for Node4<ValueTy> {
+impl Node for Node4 {
     const LOG_2_DIM: u32 = 4;
     const TOTAL: u32 = 3;
 
@@ -254,14 +290,14 @@ impl<ValueTy> Node for Node4<ValueTy> {
 }
 
 #[derive(Debug)]
-pub struct Node5<ValueTy> {
+pub struct Node5 {
     pub child_mask: BitVec<u64, Lsb0>,
     pub value_mask: BitVec<u64, Lsb0>,
-    pub nodes: HashMap<u32, Node4<ValueTy>>,
+    pub nodes: HashMap<u32, Node4>,
     pub origin: glam::IVec3,
 }
 
-impl<ValueTy> Node for Node5<ValueTy> {
+impl Node for Node5 {
     const LOG_2_DIM: u32 = 5;
     const TOTAL: u32 = 7;
 
@@ -271,8 +307,8 @@ impl<ValueTy> Node for Node5<ValueTy> {
 }
 
 #[derive(Debug)]
-pub struct Tree<ValueTy> {
-    pub root_nodes: Vec<Node5<ValueTy>>,
+pub struct Tree {
+    pub root_nodes: Vec<Node5>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

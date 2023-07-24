@@ -4,6 +4,7 @@ use crate::data_structure::{
     Node5, NodeHeader, NodeMetaData, Tree,
 };
 use crate::transform::Map;
+use crate::DataType;
 
 use bitvec::prelude::*;
 use blosc_src::blosc_cbuffer_sizes;
@@ -153,10 +154,7 @@ impl<R: Read + Seek> VdbReader<R> {
         })
     }
 
-    pub fn read_grid<ExpectedTy: Pod>(
-        &mut self,
-        name: &str,
-    ) -> Result<Grid<ExpectedTy>, ParseError> {
+    pub fn read_grid(&mut self, name: &str) -> Result<Grid, ParseError> {
         let grid_descriptor = self.grid_descriptors.get(name).cloned();
         let gd = grid_descriptor.ok_or_else(|| ParseError::InvalidGridName(name.to_owned()))?;
         Self::read_grid_internal(&self.header, &mut self.reader, gd)
@@ -194,12 +192,12 @@ impl<R: Read + Seek> VdbReader<R> {
         })
     }
 
-    fn read_node_header<ValueTy: Pod>(
+    fn read_node_header(
         reader: &mut R,
         log_2_dim: u32,
         header: &ArchiveHeader,
         gd: &GridDescriptor,
-    ) -> Result<NodeHeader<ValueTy>, ParseError> {
+    ) -> Result<NodeHeader, ParseError> {
         let linear_dim = (1 << (3 * log_2_dim)) as usize;
 
         let mut child_mask = bitvec![u64, Lsb0; 0; linear_dim];
@@ -213,7 +211,29 @@ impl<R: Read + Seek> VdbReader<R> {
             (1 << (3 * log_2_dim)) as usize
         };
 
-        let data = Self::read_compressed(reader, header, gd, linear_dim, value_mask.as_bitslice())?;
+        let data = match gd.data_type() {
+            DataType::F32 => {
+                let data = Self::read_compressed::<f32>(
+                    reader,
+                    header,
+                    gd,
+                    linear_dim,
+                    value_mask.as_bitslice(),
+                )?;
+                bytemuck::cast_slice::<f32, u8>(&data).to_vec()
+            }
+            DataType::F16 => {
+                let data = Self::read_compressed::<f16>(
+                    reader,
+                    header,
+                    gd,
+                    linear_dim,
+                    value_mask.as_bitslice(),
+                )?;
+                bytemuck::cast_slice::<f16, u8>(&data).to_vec()
+            }
+            DataType::Float3 => todo!(),
+        };
 
         Ok(NodeHeader {
             child_mask,
@@ -351,20 +371,7 @@ impl<R: Read + Seek> VdbReader<R> {
             num_values
         };
 
-        // jb-todo: we may need to extend this to vector types
-        let data = if gd.meta_data.is_half_float()
-            && std::any::TypeId::of::<T>() == std::any::TypeId::of::<f32>()
-        {
-            let data = Self::read_compressed_data::<f16>(reader, archive, gd, count)?;
-            bytemuck::cast_vec(data.into_iter().map(f16::to_f32).collect::<Vec<f32>>())
-        } else if !gd.meta_data.is_half_float()
-            && std::any::TypeId::of::<T>() == std::any::TypeId::of::<f16>()
-        {
-            let data = Self::read_compressed_data::<f32>(reader, archive, gd, count)?;
-            bytemuck::cast_vec(data.into_iter().map(f16::from_f32).collect::<Vec<_>>())
-        } else {
-            Self::read_compressed_data(reader, archive, gd, count)?
-        };
+        let data = Self::read_compressed_data(reader, archive, gd, count)?;
 
         Ok(
             if gd.compression.contains(Compression::ACTIVE_MASK) && data.len() != num_values {
@@ -448,11 +455,11 @@ impl<R: Read + Seek> VdbReader<R> {
         Ok(meta_data)
     }
 
-    fn read_tree_topology<ValueTy: Pod>(
+    fn read_tree_topology(
         header: &ArchiveHeader,
         gd: &GridDescriptor,
         reader: &mut R,
-    ) -> Result<Tree<ValueTy>, ParseError> {
+    ) -> Result<Tree, ParseError> {
         let buffer_count = reader.read_u32::<LittleEndian>()?;
         assert_eq!(buffer_count, 1, "Multi-buffer trees are not supported");
 
@@ -471,8 +478,7 @@ impl<R: Read + Seek> VdbReader<R> {
         for _root_idx in 0..number_of_root_nodes {
             let origin = read_i_vec3(reader)?;
 
-            let node_5 =
-                Self::read_node_header::<ValueTy>(reader, 5 /* 32 * 32 * 32 */, header, gd)?;
+            let node_5 = Self::read_node_header(reader, 5 /* 32 * 32 * 32 */, header, gd)?;
             let mut child_5 = HashMap::default();
 
             let mut root = Node5 {
@@ -483,10 +489,7 @@ impl<R: Read + Seek> VdbReader<R> {
             };
 
             for idx in node_5.child_mask.iter_ones() {
-                let node_4 = Self::read_node_header::<ValueTy>(
-                    reader, 4, /* 16 * 16 * 16 */
-                    header, gd,
-                )?;
+                let node_4 = Self::read_node_header(reader, 4 /* 16 * 16 * 16 */, header, gd)?;
                 let mut child_4 = HashMap::default();
 
                 let mut cur_node_4 = Node4 {
@@ -524,11 +527,11 @@ impl<R: Read + Seek> VdbReader<R> {
         Ok(Tree { root_nodes })
     }
 
-    fn read_tree_data<ValueTy: Pod>(
+    fn read_tree_data(
         header: &ArchiveHeader,
         gd: &GridDescriptor,
         reader: &mut R,
-        tree: &mut Tree<ValueTy>,
+        tree: &mut Tree,
     ) -> Result<(), ParseError> {
         gd.seek_to_blocks(reader)?;
 
@@ -550,13 +553,29 @@ impl<R: Read + Seek> VdbReader<R> {
                         assert_eq!(num_buffers, 1);
                     }
 
-                    let data = Self::read_compressed(
-                        reader,
-                        header,
-                        gd,
-                        linear_dim,
-                        value_mask.as_bitslice(),
-                    )?;
+                    let data = match gd.data_type() {
+                        DataType::F32 => {
+                            let data = Self::read_compressed::<f32>(
+                                reader,
+                                header,
+                                gd,
+                                linear_dim,
+                                value_mask.as_bitslice(),
+                            )?;
+                            bytemuck::cast_slice::<f32, u8>(&data).to_vec()
+                        }
+                        DataType::F16 => {
+                            let data = Self::read_compressed::<f16>(
+                                reader,
+                                header,
+                                gd,
+                                linear_dim,
+                                value_mask.as_bitslice(),
+                            )?;
+                            bytemuck::cast_slice::<f16, u8>(&data).to_vec()
+                        }
+                        DataType::Float3 => todo!(),
+                    };
 
                     node_3.buffer = data;
                 }
@@ -566,11 +585,11 @@ impl<R: Read + Seek> VdbReader<R> {
         Ok(())
     }
 
-    fn read_grid_internal<ValueTy: Pod>(
+    fn read_grid_internal(
         header: &ArchiveHeader,
         reader: &mut R,
         gd: GridDescriptor,
-    ) -> Result<Grid<ValueTy>, ParseError> {
+    ) -> Result<Grid, ParseError> {
         gd.seek_to_grid(reader).unwrap();
         // Having to re-do this is ugly, as we already did this while parsing the descriptor
         if header.file_version >= OPENVDB_FILE_VERSION_NODE_MASK_COMPRESSION {

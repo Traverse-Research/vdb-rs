@@ -163,7 +163,7 @@ impl GridDescriptor {
         reader.seek(SeekFrom::Start(self.block_pos))
     }
 
-    pub fn data_type(&self) -> LeafDataType {
+    pub fn leaf_data_type(&self) -> LeafDataType {
         let type_string = self
             .meta_data
             .0

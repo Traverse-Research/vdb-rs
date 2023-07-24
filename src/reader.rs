@@ -211,7 +211,7 @@ impl<R: Read + Seek> VdbReader<R> {
             (1 << (3 * log_2_dim)) as usize
         };
 
-        let data = match gd.data_type() {
+        let data = match gd.leaf_data_type() {
             LeafDataType::F32 => {
                 let data = Self::read_compressed::<f32>(
                     reader,
@@ -553,7 +553,7 @@ impl<R: Read + Seek> VdbReader<R> {
                         assert_eq!(num_buffers, 1);
                     }
 
-                    let data = match gd.data_type() {
+                    let data = match gd.leaf_data_type() {
                         LeafDataType::F32 => {
                             let data = Self::read_compressed::<f32>(
                                 reader,

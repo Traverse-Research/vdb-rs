@@ -13,7 +13,7 @@ use byteorder::{LittleEndian, ReadBytesExt};
 
 use half::f16;
 use log::{trace, warn};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::{Read, Seek, SeekFrom};
 
 pub const OPENVDB_MIN_SUPPORTED_VERSION: u32 = OPENVDB_FILE_VERSION_ROOTNODE_MAP;
@@ -81,7 +81,7 @@ fn read_i_vec3<R: Read + Seek>(reader: &mut R) -> Result<glam::IVec3, ParseError
 pub struct VdbReader<R: Read + Seek> {
     reader: R,
     pub header: ArchiveHeader,
-    pub grid_descriptors: HashMap<String, GridDescriptor>,
+    pub grid_descriptors: BTreeMap<String, GridDescriptor>,
 }
 
 impl<R: Read + Seek> VdbReader<R> {
@@ -615,11 +615,11 @@ impl<R: Read + Seek> VdbReader<R> {
     fn read_grid_descriptors(
         header: &ArchiveHeader,
         reader: &mut R,
-    ) -> Result<HashMap<String, GridDescriptor>, ParseError> {
+    ) -> Result<BTreeMap<String, GridDescriptor>, ParseError> {
         // Should be guaranteed by minimum file version
         assert!(header.has_grid_offsets);
 
-        let mut result = HashMap::new();
+        let mut result = BTreeMap::new();
         for _ in 0..header.grid_count {
             let name = Self::read_name(reader)?;
             let grid_type = Self::read_name(reader)?;

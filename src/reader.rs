@@ -4,7 +4,7 @@ use crate::data_structure::{
     Node5, NodeHeader, NodeMetaData, Tree,
 };
 use crate::transform::Map;
-use crate::DataType;
+use crate::LeafDataType;
 
 use bitvec::prelude::*;
 use blosc_src::blosc_cbuffer_sizes;
@@ -212,7 +212,7 @@ impl<R: Read + Seek> VdbReader<R> {
         };
 
         let data = match gd.data_type() {
-            DataType::F32 => {
+            LeafDataType::F32 => {
                 let data = Self::read_compressed::<f32>(
                     reader,
                     header,
@@ -222,7 +222,7 @@ impl<R: Read + Seek> VdbReader<R> {
                 )?;
                 bytemuck::cast_slice::<f32, u8>(&data).to_vec()
             }
-            DataType::F16 => {
+            LeafDataType::F16 => {
                 let data = Self::read_compressed::<f16>(
                     reader,
                     header,
@@ -232,7 +232,7 @@ impl<R: Read + Seek> VdbReader<R> {
                 )?;
                 bytemuck::cast_slice::<f16, u8>(&data).to_vec()
             }
-            DataType::Float3 => todo!(),
+            LeafDataType::Float3 => todo!(),
         };
 
         Ok(NodeHeader {
@@ -554,7 +554,7 @@ impl<R: Read + Seek> VdbReader<R> {
                     }
 
                     let data = match gd.data_type() {
-                        DataType::F32 => {
+                        LeafDataType::F32 => {
                             let data = Self::read_compressed::<f32>(
                                 reader,
                                 header,
@@ -564,7 +564,7 @@ impl<R: Read + Seek> VdbReader<R> {
                             )?;
                             bytemuck::cast_slice::<f32, u8>(&data).to_vec()
                         }
-                        DataType::F16 => {
+                        LeafDataType::F16 => {
                             let data = Self::read_compressed::<f16>(
                                 reader,
                                 header,
@@ -574,7 +574,7 @@ impl<R: Read + Seek> VdbReader<R> {
                             )?;
                             bytemuck::cast_slice::<f16, u8>(&data).to_vec()
                         }
-                        DataType::Float3 => todo!(),
+                        LeafDataType::Float3 => todo!(),
                     };
 
                     node_3.buffer = data;

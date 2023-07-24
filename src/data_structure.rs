@@ -15,7 +15,7 @@ pub enum GridMetadataError {
     FieldNotPresent(String),
 }
 
-pub enum DataType {
+pub enum LeafDataType {
     F32,
     F16,
     Float3,
@@ -103,7 +103,6 @@ where
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             if let (Some(idx), Some(node_3)) = (self.node_3_iter.next(), self.node_3) {
-                // TODO: Cast when GridIter is created? Not at every iteration? Or is that not an issue?
                 let v = bytemuck::cast_slice::<u8, ValueTy>(&node_3.buffer)[idx];
                 let global_coord = node_3.offset_to_global_coord(Index(idx as u32));
                 let c = global_coord.0.as_vec3();
@@ -164,18 +163,19 @@ impl GridDescriptor {
         reader.seek(SeekFrom::Start(self.block_pos))
     }
 
-    pub fn data_type(&self) -> DataType {
+    pub fn data_type(&self) -> LeafDataType {
         let type_string = self
             .meta_data
             .0
             .get("value_type")
             .expect("Can not extract Grid value type!");
+        dbg!(type_string);
         if let MetadataValue::String(s) = type_string {
             if s == "float" {
                 if self.meta_data.is_half_float() {
-                    DataType::F16
+                    LeafDataType::F16
                 } else {
-                    DataType::F32
+                    LeafDataType::F32
                 }
             } else {
                 unimplemented!();

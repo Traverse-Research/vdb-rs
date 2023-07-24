@@ -57,16 +57,28 @@ fn setup(mut commands: Commands, mut color_options_map: ResMut<CuboidMaterialMap
     });
 
     let grid = vdb_reader.read_grid(&grid_to_load).unwrap();
-    let instances: Vec<Cuboid> = grid
-        .iter::<half::f16>()
-        .map(|(pos, voxel)| {
-            Cuboid::new(
-                pos * 0.1,
-                (pos + Vec3::new(1.0, 1.0, 1.0)) * 0.1,
-                u32::from_le_bytes(f32::to_le_bytes(voxel.to_f32())),
-            )
-        })
-        .collect();
+    let grid_iter_variant = grid.iter();
+    let instances: Vec<Cuboid> = match grid_iter_variant {
+        vdb_rs::GridIterVariant::F32(iter) => iter
+            .map(|(pos, voxel)| {
+                Cuboid::new(
+                    pos * 0.1,
+                    (pos + Vec3::new(1.0, 1.0, 1.0)) * 0.1,
+                    u32::from_le_bytes(f32::to_le_bytes(voxel)),
+                )
+            })
+            .collect(),
+        vdb_rs::GridIterVariant::F16(iter) => iter
+            .map(|(pos, voxel)| {
+                Cuboid::new(
+                    pos * 0.1,
+                    (pos + Vec3::new(1.0, 1.0, 1.0)) * 0.1,
+                    u32::from_le_bytes(f32::to_le_bytes(voxel.to_f32())),
+                )
+            })
+            .collect(),
+    };
+
     let cuboids = Cuboids::new(instances);
     let aabb = cuboids.aabb();
     commands

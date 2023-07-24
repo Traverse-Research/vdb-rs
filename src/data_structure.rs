@@ -21,6 +21,12 @@ pub enum LeafDataType {
     F16,
 }
 
+// TODO: Only implemented the types I could find in a file up until now
+pub enum GridIterVariant<'a> {
+    F32(GridIter<'a, f32>),
+    F16(GridIter<'a, half::f16>),
+}
+
 #[derive(Debug)]
 pub struct Grid {
     pub tree: Tree,
@@ -29,19 +35,35 @@ pub struct Grid {
 }
 
 impl Grid {
-    pub fn iter<ValueTy: Pod>(&self) -> GridIter<'_, ValueTy> {
-        GridIter {
-            grid: self,
-            root_idx: 0,
-            node_5_iter: Default::default(),
-            node_4_iter: Default::default(),
-            node_3_iter: Default::default(),
+    pub fn iter(&self) -> GridIterVariant {
+        let data_type = self.grid_descriptor.leaf_data_type();
+        match data_type {
+            LeafDataType::F32 => GridIterVariant::F32(GridIter {
+                grid: self,
+                root_idx: 0,
+                node_5_iter: Default::default(),
+                node_4_iter: Default::default(),
+                node_3_iter: Default::default(),
 
-            node_5: None,
-            node_4: None,
-            node_3: None,
+                node_5: None,
+                node_4: None,
+                node_3: None,
 
-            phantom: PhantomData::<ValueTy>,
+                phantom: PhantomData::<f32>,
+            }),
+            LeafDataType::F16 => GridIterVariant::F16(GridIter {
+                grid: self,
+                root_idx: 0,
+                node_5_iter: Default::default(),
+                node_4_iter: Default::default(),
+                node_3_iter: Default::default(),
+
+                node_5: None,
+                node_4: None,
+                node_3: None,
+
+                phantom: PhantomData::<half::f16>,
+            }),
         }
     }
 

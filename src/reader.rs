@@ -585,7 +585,6 @@ impl<R: Read + Seek> VdbReader<R> {
                     Self::read_tree_data::<f16>(header, &gd, reader, &mut tree)?;
                     tree
                 }
-                LeafDataType::Float3 => todo!(),
             };
 
             Ok(Grid {

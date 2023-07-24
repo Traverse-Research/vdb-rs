@@ -15,10 +15,10 @@ pub enum GridMetadataError {
     FieldNotPresent(String),
 }
 
+// TODO: Only implemented the types I could find in a file up until now
 pub enum LeafDataType {
     F32,
     F16,
-    Float3,
 }
 
 #[derive(Debug)]
@@ -164,13 +164,7 @@ impl GridDescriptor {
     }
 
     pub fn leaf_data_type(&self) -> LeafDataType {
-        let type_string = self
-            .meta_data
-            .0
-            .get("value_type")
-            .expect("Can not extract Grid value type!");
-        dbg!(type_string);
-        if let MetadataValue::String(s) = type_string {
+        if let Some(MetadataValue::String(s)) = self.meta_data.0.get("value_type") {
             if s == "float" {
                 if self.meta_data.is_half_float() {
                     LeafDataType::F16
@@ -181,7 +175,12 @@ impl GridDescriptor {
                 unimplemented!();
             }
         } else {
-            panic!("Expected value_type metadata as string format");
+            // Default to float as we've found instances of VDB volumes without `value_type` for their grids.
+            if self.meta_data.is_half_float() {
+                LeafDataType::F16
+            } else {
+                LeafDataType::F32
+            }
         }
     }
 }

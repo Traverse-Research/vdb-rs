@@ -192,7 +192,7 @@ impl<R: Read + Seek> VdbReader<R> {
         })
     }
 
-    fn read_node_header(
+    fn read_node_header<ValueTy: Pod>(
         reader: &mut R,
         log_2_dim: u32,
         header: &ArchiveHeader,
@@ -211,29 +211,14 @@ impl<R: Read + Seek> VdbReader<R> {
             (1 << (3 * log_2_dim)) as usize
         };
 
-        let data = match gd.leaf_data_type() {
-            LeafDataType::F32 => {
-                let data = Self::read_compressed::<f32>(
-                    reader,
-                    header,
-                    gd,
-                    linear_dim,
-                    value_mask.as_bitslice(),
-                )?;
-                bytemuck::cast_slice::<f32, u8>(&data).to_vec()
-            }
-            LeafDataType::F16 => {
-                let data = Self::read_compressed::<f16>(
-                    reader,
-                    header,
-                    gd,
-                    linear_dim,
-                    value_mask.as_bitslice(),
-                )?;
-                bytemuck::cast_slice::<f16, u8>(&data).to_vec()
-            }
-            LeafDataType::Float3 => todo!(),
-        };
+        let data = Self::read_compressed::<ValueTy>(
+            reader,
+            header,
+            gd,
+            linear_dim,
+            value_mask.as_bitslice(),
+        )?;
+        let data = bytemuck::cast_slice::<ValueTy, u8>(&data).to_vec();
 
         Ok(NodeHeader {
             child_mask,
@@ -455,7 +440,7 @@ impl<R: Read + Seek> VdbReader<R> {
         Ok(meta_data)
     }
 
-    fn read_tree_topology(
+    fn read_tree_topology<ValueTy: Pod>(
         header: &ArchiveHeader,
         gd: &GridDescriptor,
         reader: &mut R,
@@ -478,7 +463,8 @@ impl<R: Read + Seek> VdbReader<R> {
         for _root_idx in 0..number_of_root_nodes {
             let origin = read_i_vec3(reader)?;
 
-            let node_5 = Self::read_node_header(reader, 5 /* 32 * 32 * 32 */, header, gd)?;
+            let node_5 =
+                Self::read_node_header::<ValueTy>(reader, 5 /* 32 * 32 * 32 */, header, gd)?;
             let mut child_5 = HashMap::default();
 
             let mut root = Node5 {
@@ -489,7 +475,10 @@ impl<R: Read + Seek> VdbReader<R> {
             };
 
             for idx in node_5.child_mask.iter_ones() {
-                let node_4 = Self::read_node_header(reader, 4 /* 16 * 16 * 16 */, header, gd)?;
+                let node_4 = Self::read_node_header::<ValueTy>(
+                    reader, 4, /* 16 * 16 * 16 */
+                    header, gd,
+                )?;
                 let mut child_4 = HashMap::default();
 
                 let mut cur_node_4 = Node4 {
@@ -527,7 +516,7 @@ impl<R: Read + Seek> VdbReader<R> {
         Ok(Tree { root_nodes })
     }
 
-    fn read_tree_data(
+    fn read_tree_data<ValueTy: Pod>(
         header: &ArchiveHeader,
         gd: &GridDescriptor,
         reader: &mut R,
@@ -553,29 +542,14 @@ impl<R: Read + Seek> VdbReader<R> {
                         assert_eq!(num_buffers, 1);
                     }
 
-                    let data = match gd.leaf_data_type() {
-                        LeafDataType::F32 => {
-                            let data = Self::read_compressed::<f32>(
-                                reader,
-                                header,
-                                gd,
-                                linear_dim,
-                                value_mask.as_bitslice(),
-                            )?;
-                            bytemuck::cast_slice::<f32, u8>(&data).to_vec()
-                        }
-                        LeafDataType::F16 => {
-                            let data = Self::read_compressed::<f16>(
-                                reader,
-                                header,
-                                gd,
-                                linear_dim,
-                                value_mask.as_bitslice(),
-                            )?;
-                            bytemuck::cast_slice::<f16, u8>(&data).to_vec()
-                        }
-                        LeafDataType::Float3 => todo!(),
-                    };
+                    let data = Self::read_compressed::<ValueTy>(
+                        reader,
+                        header,
+                        gd,
+                        linear_dim,
+                        value_mask.as_bitslice(),
+                    )?;
+                    let data = bytemuck::cast_slice::<ValueTy, u8>(&data).to_vec();
 
                     node_3.buffer = data;
                 }
@@ -599,8 +573,20 @@ impl<R: Read + Seek> VdbReader<R> {
 
         if header.file_version >= OPENVDB_FILE_VERSION_GRID_INSTANCING {
             let transform = Self::read_transform(reader)?;
-            let mut tree = Self::read_tree_topology(header, &gd, reader)?;
-            Self::read_tree_data(header, &gd, reader, &mut tree)?;
+
+            let tree = match gd.leaf_data_type() {
+                LeafDataType::F32 => {
+                    let mut tree = Self::read_tree_topology::<f32>(header, &gd, reader)?;
+                    Self::read_tree_data::<f32>(header, &gd, reader, &mut tree)?;
+                    tree
+                }
+                LeafDataType::F16 => {
+                    let mut tree = Self::read_tree_topology::<f16>(header, &gd, reader)?;
+                    Self::read_tree_data::<f16>(header, &gd, reader, &mut tree)?;
+                    tree
+                }
+                LeafDataType::Float3 => todo!(),
+            };
 
             Ok(Grid {
                 tree,

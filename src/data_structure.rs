@@ -17,7 +17,7 @@ pub enum GridMetadataError {
 pub struct Grid<ValueTy> {
     pub tree: Tree<ValueTy>,
     pub transform: Map,
-    pub grid_descriptor: GridDescriptor,
+    pub descriptor: GridDescriptor,
 }
 
 impl<ValueTy> Grid<ValueTy> {
@@ -37,7 +37,7 @@ impl<ValueTy> Grid<ValueTy> {
 
     // below values should always be present, see https://github.com/AcademySoftwareFoundation/openvdb/blob/master/openvdb/openvdb/Grid.cc#L387
     pub fn aabb_min(&self) -> Result<IVec3, GridMetadataError> {
-        match self.grid_descriptor.meta_data.0["file_bbox_min"] {
+        match self.descriptor.meta_data.0["file_bbox_min"] {
             MetadataValue::Vec3i(v) => Ok(v),
             _ => Err(GridMetadataError::FieldNotPresent(
                 "file_bbox_min".to_string(),
@@ -45,7 +45,7 @@ impl<ValueTy> Grid<ValueTy> {
         }
     }
     pub fn aabb_max(&self) -> Result<IVec3, GridMetadataError> {
-        match self.grid_descriptor.meta_data.0["file_bbox_max"] {
+        match self.descriptor.meta_data.0["file_bbox_max"] {
             MetadataValue::Vec3i(v) => Ok(v),
             _ => Err(GridMetadataError::FieldNotPresent(
                 "file_bbox_max".to_string(),
@@ -53,7 +53,7 @@ impl<ValueTy> Grid<ValueTy> {
         }
     }
     pub fn mem_bytes(&self) -> Result<i64, GridMetadataError> {
-        match self.grid_descriptor.meta_data.0["file_mem_bytes"] {
+        match self.descriptor.meta_data.0["file_mem_bytes"] {
             MetadataValue::I64(v) => Ok(v),
             _ => Err(GridMetadataError::FieldNotPresent(
                 "file_mem_bytes".to_string(),
@@ -61,7 +61,7 @@ impl<ValueTy> Grid<ValueTy> {
         }
     }
     pub fn voxel_count(&self) -> Result<i64, GridMetadataError> {
-        match self.grid_descriptor.meta_data.0["file_voxel_count"] {
+        match self.descriptor.meta_data.0["file_voxel_count"] {
             MetadataValue::I64(v) => Ok(v),
             _ => Err(GridMetadataError::FieldNotPresent(
                 "file_voxel_count".to_string(),

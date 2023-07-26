@@ -586,7 +586,7 @@ impl<R: Read + Seek> VdbReader<R> {
             Ok(Grid {
                 tree,
                 transform,
-                grid_descriptor: gd,
+                descriptor: gd,
             })
         } else {
             todo!("Old file version not supported {}", header.file_version);

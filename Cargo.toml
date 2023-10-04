@@ -36,5 +36,3 @@ thiserror = "1"
 bevy = { version = "0.11", default-features = false, features = ["bevy_pbr"] }
 bevy-aabb-instancing = "0.10"
 smooth-bevy-cameras = "0.9"
-# Force 0.23 for compatibility with bevy 0.10
-glam = "0.23"

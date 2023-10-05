@@ -33,8 +33,6 @@ log = "0.4"
 thiserror = "1"
 
 [dev-dependencies]
-bevy = { version = "0.10", default-features = false, features = ["bevy_pbr"] }
-bevy-aabb-instancing = "0.9"
-smooth-bevy-cameras = "0.8"
-# Force 0.23 for compatibility with bevy 0.10
-glam = "0.23"
+bevy = { version = "0.11", default-features = false, features = ["bevy_pbr"] }
+bevy-aabb-instancing = "0.10"
+smooth-bevy-cameras = "0.9"

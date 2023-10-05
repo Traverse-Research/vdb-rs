@@ -17,10 +17,10 @@ fn main() -> Result<(), Box<dyn Error>> {
             }),
             ..Default::default()
         }))
-        .add_plugin(VertexPullingRenderPlugin { outlines: true })
-        .add_plugin(LookTransformPlugin)
-        .add_plugin(UnrealCameraPlugin::default())
-        .add_startup_system(setup)
+        .add_plugins(VertexPullingRenderPlugin { outlines: true })
+        .add_plugins(LookTransformPlugin)
+        .add_plugins(UnrealCameraPlugin::default())
+        .add_systems(Startup, setup)
         .run();
 
     Ok(())

@@ -59,7 +59,7 @@ fn setup(mut commands: Commands, mut color_options_map: ResMut<CuboidMaterialMap
     let grid = vdb_reader.read_grid::<half::f16>(&grid_to_load).unwrap();
     let instances: Vec<Cuboid> = grid
         .iter()
-        .map(|(pos, voxel)| {
+        .map(|(pos, voxel, _)| {
             Cuboid::new(
                 pos * 0.1,
                 (pos + Vec3::new(1.0, 1.0, 1.0)) * 0.1,

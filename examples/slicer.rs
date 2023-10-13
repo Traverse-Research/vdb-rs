@@ -135,14 +135,23 @@ fn rebuild_model(
         let instances: Vec<Cuboid> = model_data
             .grid
             .iter()
-            .filter_map(|(pos, voxel)| {
-                if reject_fn(pos) {
+            .filter_map(|(pos, voxel, level)| {
+                let temp_pos = (pos / level.scale()).floor() * level.scale()
+                    + (slice_index % level.scale() as i32) as f32;
+                if reject_fn(temp_pos) {
                     None
                 } else {
                     let pos = pos + translation;
+                    let dimension_mult = (match render_settings.render_mode {
+                        RenderMode::FirstDensity => vec3(1.0, 1.0, 1.0),
+                        RenderMode::XSlice => vec3(0.0, 1.0, 1.0),
+                        RenderMode::YSlice => vec3(1.0, 0.0, 1.0),
+                        RenderMode::ZSlice => vec3(1.0, 1.0, 0.0),
+                    } * level.scale())
+                    .max(Vec3::ONE);
                     Some(Cuboid::new(
                         pos * 0.1,
-                        (pos + Vec3::new(1.0, 1.0, 1.0)) * 0.1,
+                        (pos + Vec3::new(1.0, 1.0, 1.0) * dimension_mult) * 0.1,
                         u32::from_le_bytes(f32::to_le_bytes(voxel.to_f32())),
                     ))
                 }

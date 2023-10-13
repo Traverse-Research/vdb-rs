@@ -26,9 +26,9 @@ impl<ValueTy> Grid<ValueTy> {
             grid: self,
             root_idx: 0,
             node_5_iter_active: Default::default(),
-            node_5_child: Default::default(),
+            node_5_iter_child: Default::default(),
             node_4_iter_active: Default::default(),
-            node_4_child: Default::default(),
+            node_4_iter_child: Default::default(),
             node_3_iter_child: Default::default(),
 
             node_5: None,
@@ -60,9 +60,9 @@ pub struct GridIter<'a, ValueTy> {
     grid: &'a Grid<ValueTy>,
     root_idx: usize,
     node_5_iter_active: IterOnes<'a, u64, Lsb0>,
-    node_5_child: Option<&'a BitVec<u64, Lsb0>>,
+    node_5_iter_child: IterOnes<'a, u64, Lsb0>,
     node_4_iter_active: IterOnes<'a, u64, Lsb0>,
-    node_4_child: Option<&'a BitVec<u64, Lsb0>>,
+    node_4_iter_child: IterOnes<'a, u64, Lsb0>,
     node_3_iter_child: IterOnes<'a, u64, Lsb0>,
 
     node_5: Option<&'a Node5<ValueTy>>,
@@ -82,57 +82,44 @@ where
                 let v = node_3.buffer[idx];
                 let global_coord = node_3.offset_to_global_coord(Index(idx as u32));
                 let c = global_coord.0.as_vec3();
-                println!("voxel");
                 return Some((c, v, VdbLevel::Voxel));
             }
-            if let (Some(idx), Some(node_4), Some(node_4_child)) = (
-                self.node_4_iter_active.next(),
-                self.node_4,
-                self.node_4_child,
-            ) {
-                if *node_4_child.get(idx).unwrap() {
-                    let node_3 = &node_4.nodes[&(idx as u32)];
-                    self.node_3_iter_child = node_3.value_mask.iter_ones();
-                    self.node_3 = Some(node_3);
-                    println!("set node 3");
-                    continue;
-                } else {
-                    println!("voxel node 3");
-                    return Some((
-                        node_4.offset_to_global_coord(Index(idx as u32)).0.as_vec3(),
-                        *node_4.data.get(idx).unwrap(),
-                        VdbLevel::Node3,
-                    ));
-                }
+
+            // either iterate over the child bits and continue to child, or iterate over active bits and return large voxels
+            if let (Some(idx), Some(node_4)) = (self.node_4_iter_child.next(), self.node_4) {
+                let node_3 = &node_4.nodes[&(idx as u32)];
+                self.node_3_iter_child = node_3.value_mask.iter_ones();
+                self.node_3 = Some(node_3);
+                continue;
+            } else if let (Some(idx), Some(node_4)) = (self.node_4_iter_active.next(), self.node_4)
+            {
+                return Some((
+                    node_4.offset_to_global_coord(Index(idx as u32)).0.as_vec3(),
+                    node_4.data[idx],
+                    VdbLevel::Node3,
+                ));
             }
-            if let (Some(idx), Some(node_5), Some(node_5_child)) = (
-                self.node_5_iter_active.next(),
-                self.node_5,
-                self.node_5_child,
-            ) {
-                if *node_5_child.get(idx).unwrap() {
-                    let node_4 = &node_5.nodes[&(idx as u32)];
-                    self.node_4_iter_active = node_4.value_mask.iter_ones();
-                    self.node_4_child = Some(&node_4.child_mask);
-                    self.node_4 = Some(node_4);
-                    println!("set node 4");
-                    continue;
-                } else {
-                    println!("voxel node 4");
-                    return Some((
-                        node_5.offset_to_global_coord(Index(idx as u32)).0.as_vec3(),
-                        *node_5.data.get(idx).unwrap(),
-                        VdbLevel::Node4,
-                    ));
-                }
+
+            // either iterate over the child bits and continue to child, or iterate over active bits and return large voxels
+            if let (Some(idx), Some(node_5)) = (self.node_5_iter_child.next(), self.node_5) {
+                let node_4 = &node_5.nodes[&(idx as u32)];
+                self.node_4_iter_active = node_4.value_mask.iter_ones();
+                self.node_4_iter_child = node_4.child_mask.iter_ones();
+                self.node_4 = Some(node_4);
+                continue;
+            } else if let (Some(idx), Some(node_5)) = (self.node_5_iter_active.next(), self.node_5)
+            {
+                return Some((
+                    node_5.offset_to_global_coord(Index(idx as u32)).0.as_vec3(),
+                    *node_5.data.get(idx).unwrap(),
+                    VdbLevel::Node4,
+                ));
             }
 
             if self.root_idx < self.grid.tree.root_nodes.len() {
                 let node_5 = &self.grid.tree.root_nodes[self.root_idx];
                 self.node_5_iter_active = node_5.value_mask.iter_ones();
-                println!("{}", node_5.value_mask.count_ones());
-                println!("{}", node_5.child_mask.count_ones());
-                self.node_5_child = Some(&node_5.child_mask);
+                self.node_5_iter_child = node_5.child_mask.iter_ones();
                 self.node_5 = Some(node_5);
                 self.root_idx += 1;
                 println!("set node 5");

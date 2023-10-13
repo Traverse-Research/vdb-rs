@@ -473,6 +473,18 @@ impl<R: Read + Seek> VdbReader<R> {
 
             let node_5 =
                 Self::read_node_header::<ValueTy>(reader, 5 /* 32 * 32 * 32 */, header, gd)?;
+
+            assert!(
+                node_5
+                    .child_mask
+                    .iter()
+                    .zip(node_5.value_mask.iter())
+                    .map(|(bit1, bit2)| (*bit1 & *bit2) as u32)
+                    .sum::<u32>()
+                    == 0,
+                "intersection of child and acctive masks was not 0"
+            );
+
             let mut child_5 = HashMap::default();
 
             let mut root = Node5 {
@@ -488,6 +500,16 @@ impl<R: Read + Seek> VdbReader<R> {
                     reader, 4, /* 16 * 16 * 16 */
                     header, gd,
                 )?;
+                assert!(
+                    node_4
+                        .child_mask
+                        .iter()
+                        .zip(node_4.value_mask.iter())
+                        .map(|(bit1, bit2)| (*bit1 & *bit2) as u32)
+                        .sum::<u32>()
+                        == 0,
+                    "intersection of child and acctive masks was not 0"
+                );
                 let mut child_4 = HashMap::default();
 
                 let mut cur_node_4 = Node4 {

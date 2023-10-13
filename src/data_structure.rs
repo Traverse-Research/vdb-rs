@@ -40,7 +40,6 @@ impl<ValueTy> Grid<ValueTy> {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum VdbLevel {
-    Node5,
     Node4,
     Node3,
     Voxel,
@@ -48,7 +47,6 @@ pub enum VdbLevel {
 impl VdbLevel {
     pub fn scale(self) -> f32 {
         match self {
-            VdbLevel::Node5 => (1 << 5) as f32,
             VdbLevel::Node4 => (1 << 4) as f32,
             VdbLevel::Node3 => (1 << 3) as f32,
             VdbLevel::Voxel => 1.0,

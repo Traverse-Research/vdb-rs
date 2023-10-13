@@ -151,7 +151,10 @@ fn rebuild_model(
             .grid
             .iter()
             .filter_map(|(mut pos, voxel, level)| {
-                let level_invariate_position = (pos / level.scale()).floor() * level.scale()
+                // If our voxel intersects the slice index, we have to move it there to properly evaluate the reject_fn
+                let level_invariate_position = ((pos / level.scale()).floor()
+                    + if slice_index.is_negative() { 1.0 } else { 0.0 })
+                    * level.scale()
                     + (slice_index % level.scale() as i32) as f32;
                 if reject_fn(level_invariate_position, level) {
                     None

@@ -21,6 +21,16 @@ enum SliceAxis {
     Z,
 }
 
+impl SliceAxis {
+    pub fn unit_vec(self) -> Vec3 {
+        match self {
+            SliceAxis::X => vec3(1.0, 0.0, 0.0),
+            SliceAxis::Y => vec3(0.0, 1.0, 0.0),
+            SliceAxis::Z => vec3(0.0, 0.0, 1.0),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq)]
 enum RenderMode {
     FirstDensity,
@@ -120,10 +130,12 @@ fn rebuild_model(
             commands.entity(entity).despawn();
         });
 
-        let translation = match model_data.grid.transform {
-            Map::ScaleTranslateMap { translation, .. } => translation.as_vec3(),
-            _ => vec3(0.0, 0.0, 0.0),
-        };
+        let translation =
+            if let Map::ScaleTranslateMap { translation, .. } = model_data.grid.transform {
+                translation.as_vec3()
+            } else {
+                vec3(0.0, 0.0, 0.0)
+            };
 
         let slice_index = settings.render_slice_index;
 
@@ -135,20 +147,20 @@ fn rebuild_model(
         let instances: Vec<Cuboid> = model_data
             .grid
             .iter()
-            .filter_map(|(pos, voxel, level)| {
+            .filter_map(|(mut pos, voxel, level)| {
                 let temp_pos = (pos / level.scale()).floor() * level.scale()
                     + (slice_index % level.scale() as i32) as f32;
                 if reject_fn(temp_pos) {
                     None
                 } else {
+                    let mut dimension_mult = Vec3::ONE;
+                    if let RenderMode::Slice(i) = settings.render_mode {
+                        dimension_mult -= i.unit_vec();
+                        dimension_mult = (dimension_mult * level.scale()).max(Vec3::ONE);
+                        pos[i as usize] = slice_index as f32;
+                    }
+
                     let pos = pos + translation;
-                    let dimension_mult = (match render_settings.render_mode {
-                        RenderMode::FirstDensity => vec3(1.0, 1.0, 1.0),
-                        RenderMode::XSlice => vec3(0.0, 1.0, 1.0),
-                        RenderMode::YSlice => vec3(1.0, 0.0, 1.0),
-                        RenderMode::ZSlice => vec3(1.0, 1.0, 0.0),
-                    } * level.scale())
-                    .max(Vec3::ONE);
                     Some(Cuboid::new(
                         pos * 0.1,
                         (pos + Vec3::new(1.0, 1.0, 1.0) * dimension_mult) * 0.1,

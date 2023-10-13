@@ -38,7 +38,7 @@ impl<ValueTy> Grid<ValueTy> {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum VdbLevel {
     Node5,
     Node4,

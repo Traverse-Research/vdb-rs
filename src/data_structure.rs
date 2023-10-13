@@ -120,7 +120,6 @@ where
                 self.node_5_iter_child = node_5.child_mask.iter_ones();
                 self.node_5 = Some(node_5);
                 self.root_idx += 1;
-                println!("set node 5");
                 continue;
             }
             return None;

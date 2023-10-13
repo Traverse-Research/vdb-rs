@@ -473,7 +473,6 @@ impl<R: Read + Seek> VdbReader<R> {
 
             let node_5 =
                 Self::read_node_header::<ValueTy>(reader, 5 /* 32 * 32 * 32 */, header, gd)?;
-
             let mut child_5 = HashMap::default();
 
             let mut root = Node5 {

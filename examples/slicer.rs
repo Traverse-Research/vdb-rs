@@ -24,9 +24,9 @@ enum SliceAxis {
 impl SliceAxis {
     pub fn unit_vec(self) -> Vec3 {
         match self {
-            SliceAxis::X => vec3(1.0, 0.0, 0.0),
-            SliceAxis::Y => vec3(0.0, 1.0, 0.0),
-            SliceAxis::Z => vec3(0.0, 0.0, 1.0),
+            SliceAxis::X => Vec3::X,
+            SliceAxis::Y => Vec3::Y,
+            SliceAxis::Z => Vec3::Z,
         }
     }
 }
@@ -152,10 +152,11 @@ fn rebuild_model(
             .iter()
             .filter_map(|(mut pos, voxel, level)| {
                 // If our voxel intersects the slice index, we have to move it there to properly evaluate the reject_fn
-                let level_invariate_position = ((pos / level.scale()).floor()
+                let brick_starting_pos = ((pos / level.scale()).floor()
                     + if slice_index.is_negative() { 1.0 } else { 0.0 })
-                    * level.scale()
-                    + (slice_index % level.scale() as i32) as f32;
+                    * level.scale();
+                let slice_local_offset = (slice_index % level.scale() as i32) as f32;
+                let level_invariate_position = brick_starting_pos + slice_local_offset;
                 if reject_fn(level_invariate_position, level) {
                     None
                 } else {

@@ -109,7 +109,7 @@ where
             {
                 return Some((
                     node_5.offset_to_global_coord(Index(idx as u32)).0.as_vec3(),
-                    *node_5.data.get(idx).unwrap(),
+                    node_5.data[idx],
                     VdbLevel::Node4,
                 ));
             }

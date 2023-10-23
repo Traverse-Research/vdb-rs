@@ -62,7 +62,7 @@ fn setup(mut commands: Commands, mut color_options_map: ResMut<CuboidMaterialMap
         .map(|(pos, voxel, level)| {
             Cuboid::new(
                 pos * 0.1,
-                (pos + Vec3::new(1.0, 1.0, 1.0) * level.scale()) * 0.1,
+                (pos + Vec3::splat(level.scale())) * 0.1,
                 u32::from_le_bytes(f32::to_le_bytes(voxel.to_f32())),
             )
         })

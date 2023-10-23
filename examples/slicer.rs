@@ -24,9 +24,9 @@ enum SliceAxis {
 impl SliceAxis {
     pub fn unit_vec(self) -> Vec3 {
         match self {
-            SliceAxis::X => Vec3::X,
-            SliceAxis::Y => Vec3::Y,
-            SliceAxis::Z => Vec3::Z,
+            Self::X => Vec3::X,
+            Self::Y => Vec3::Y,
+            Self::Z => Vec3::Z,
         }
     }
 }
@@ -170,7 +170,7 @@ fn rebuild_model(
                     let pos = pos + translation;
                     Some(Cuboid::new(
                         pos * 0.1,
-                        (pos + Vec3::new(1.0, 1.0, 1.0) * dimension_mult) * 0.1,
+                        (pos + dimension_mult) * 0.1,
                         u32::from_le_bytes(f32::to_le_bytes(voxel.to_f32())),
                     ))
                 }

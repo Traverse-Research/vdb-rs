@@ -10,7 +10,7 @@ use smooth_bevy_cameras::{
     controllers::orbit::{OrbitCameraBundle, OrbitCameraController, OrbitCameraPlugin},
     LookTransformPlugin,
 };
-use vdb_rs::{Grid, Map, VdbReader};
+use vdb_rs::{Grid, Map, VdbLevel, VdbReader};
 
 use std::{error::Error, fs::File, io::BufReader};
 
@@ -21,9 +21,20 @@ enum SliceAxis {
     Z,
 }
 
+impl From<SliceAxis> for Vec3 {
+    fn from(value: SliceAxis) -> Self {
+        match value {
+            SliceAxis::X => Vec3::X,
+            SliceAxis::Y => Vec3::Y,
+            SliceAxis::Z => Vec3::Z,
+        }
+    }
+}
+
 #[derive(Debug, PartialEq)]
 enum RenderMode {
     FirstDensity,
+    Tiles,
     Slice(SliceAxis),
 }
 
@@ -77,6 +88,9 @@ fn settings_ui(mut contexts: EguiContexts, mut settings: ResMut<RenderSettings>)
                     )
                     .changed();
                 settings.dirty |= ui
+                    .selectable_value(&mut settings.render_mode, RenderMode::Tiles, "Tiles")
+                    .changed();
+                settings.dirty |= ui
                     .selectable_value(
                         &mut settings.render_mode,
                         RenderMode::Slice(SliceAxis::X),
@@ -127,22 +141,36 @@ fn rebuild_model(
 
         let slice_index = settings.render_slice_index;
 
-        let reject_fn: Box<dyn Fn(Vec3) -> bool> = match settings.render_mode {
-            RenderMode::FirstDensity => Box::new(|_| false),
-            RenderMode::Slice(i) => Box::new(move |pos| pos[i as usize] as i32 != slice_index),
+        let reject_fn: Box<dyn Fn(Vec3, VdbLevel) -> bool> = match settings.render_mode {
+            RenderMode::FirstDensity => Box::new(|_, _| false),
+            RenderMode::Slice(i) => Box::new(move |pos, _| pos[i as usize] as i32 != slice_index),
+            RenderMode::Tiles => Box::new(|_, level| level == VdbLevel::Voxel),
         };
 
         let instances: Vec<Cuboid> = model_data
             .grid
             .iter()
-            .filter_map(|(pos, voxel)| {
-                if reject_fn(pos) {
+            .filter_map(|(mut pos, voxel, level)| {
+                // If our voxel intersects the slice index, we have to move it there to properly evaluate the reject_fn
+                let brick_starting_pos = ((pos / level.scale()).floor()
+                    + if slice_index.is_negative() { 1.0 } else { 0.0 })
+                    * level.scale();
+                let slice_local_offset = (slice_index % level.scale() as i32) as f32;
+                let level_invariate_position = brick_starting_pos + slice_local_offset;
+                if reject_fn(level_invariate_position, level) {
                     None
                 } else {
+                    let mut dimension_mult = Vec3::ONE;
+                    if let RenderMode::Slice(i) = settings.render_mode {
+                        dimension_mult -= Vec3::from(i);
+                        pos[i as usize] = slice_index as f32;
+                    }
+                    dimension_mult = (dimension_mult * level.scale()).max(Vec3::ONE);
+
                     let pos = pos + translation;
                     Some(Cuboid::new(
                         pos * 0.1,
-                        (pos + Vec3::new(1.0, 1.0, 1.0)) * 0.1,
+                        (pos + dimension_mult) * 0.1,
                         u32::from_le_bytes(f32::to_le_bytes(voxel.to_f32())),
                     ))
                 }

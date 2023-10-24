@@ -25,9 +25,11 @@ impl<ValueTy> Grid<ValueTy> {
         GridIter {
             grid: self,
             root_idx: 0,
-            node_5_iter: Default::default(),
-            node_4_iter: Default::default(),
-            node_3_iter: Default::default(),
+            node_5_iter_active: Default::default(),
+            node_5_iter_child: Default::default(),
+            node_4_iter_active: Default::default(),
+            node_4_iter_child: Default::default(),
+            node_3_iter_child: Default::default(),
 
             node_5: None,
             node_4: None,
@@ -36,12 +38,30 @@ impl<ValueTy> Grid<ValueTy> {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum VdbLevel {
+    Node4,
+    Node3,
+    Voxel,
+}
+impl VdbLevel {
+    pub fn scale(self) -> f32 {
+        match self {
+            VdbLevel::Node4 => (1 << 4) as f32,
+            VdbLevel::Node3 => (1 << 3) as f32,
+            VdbLevel::Voxel => 1.0,
+        }
+    }
+}
+
 pub struct GridIter<'a, ValueTy> {
     grid: &'a Grid<ValueTy>,
     root_idx: usize,
-    node_5_iter: IterOnes<'a, u64, Lsb0>,
-    node_4_iter: IterOnes<'a, u64, Lsb0>,
-    node_3_iter: IterOnes<'a, u64, Lsb0>,
+    node_5_iter_active: IterOnes<'a, u64, Lsb0>,
+    node_5_iter_child: IterOnes<'a, u64, Lsb0>,
+    node_4_iter_active: IterOnes<'a, u64, Lsb0>,
+    node_4_iter_child: IterOnes<'a, u64, Lsb0>,
+    node_3_iter_child: IterOnes<'a, u64, Lsb0>,
 
     node_5: Option<&'a Node5<ValueTy>>,
     node_4: Option<&'a Node4<ValueTy>>,
@@ -52,31 +72,52 @@ impl<'a, ValueTy> Iterator for GridIter<'a, ValueTy>
 where
     ValueTy: Copy,
 {
-    type Item = (Vec3, ValueTy);
+    type Item = (Vec3, ValueTy, VdbLevel);
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            if let (Some(idx), Some(node_3)) = (self.node_3_iter.next(), self.node_3) {
+            if let (Some(idx), Some(node_3)) = (self.node_3_iter_child.next(), self.node_3) {
                 let v = node_3.buffer[idx];
                 let global_coord = node_3.offset_to_global_coord(Index(idx as u32));
                 let c = global_coord.0.as_vec3();
-                return Some((c, v));
+                return Some((c, v, VdbLevel::Voxel));
             }
-            if let (Some(idx), Some(node_4)) = (self.node_4_iter.next(), self.node_4) {
+
+            // either iterate over the child bits and continue to child, or iterate over active bits and return large voxels
+            if let (Some(idx), Some(node_4)) = (self.node_4_iter_child.next(), self.node_4) {
                 let node_3 = &node_4.nodes[&(idx as u32)];
-                self.node_3_iter = node_3.value_mask.iter_ones();
+                self.node_3_iter_child = node_3.value_mask.iter_ones();
                 self.node_3 = Some(node_3);
                 continue;
+            } else if let (Some(idx), Some(node_4)) = (self.node_4_iter_active.next(), self.node_4)
+            {
+                return Some((
+                    node_4.offset_to_global_coord(Index(idx as u32)).0.as_vec3(),
+                    node_4.data[idx],
+                    VdbLevel::Node3,
+                ));
             }
-            if let (Some(idx), Some(node_5)) = (self.node_5_iter.next(), self.node_5) {
+
+            // either iterate over the child bits and continue to child, or iterate over active bits and return large voxels
+            if let (Some(idx), Some(node_5)) = (self.node_5_iter_child.next(), self.node_5) {
                 let node_4 = &node_5.nodes[&(idx as u32)];
-                self.node_4_iter = node_4.child_mask.iter_ones();
+                self.node_4_iter_active = node_4.value_mask.iter_ones();
+                self.node_4_iter_child = node_4.child_mask.iter_ones();
                 self.node_4 = Some(node_4);
                 continue;
+            } else if let (Some(idx), Some(node_5)) = (self.node_5_iter_active.next(), self.node_5)
+            {
+                return Some((
+                    node_5.offset_to_global_coord(Index(idx as u32)).0.as_vec3(),
+                    node_5.data[idx],
+                    VdbLevel::Node4,
+                ));
             }
+
             if self.root_idx < self.grid.tree.root_nodes.len() {
                 let node_5 = &self.grid.tree.root_nodes[self.root_idx];
-                self.node_5_iter = node_5.child_mask.iter_ones();
+                self.node_5_iter_active = node_5.value_mask.iter_ones();
+                self.node_5_iter_child = node_5.child_mask.iter_ones();
                 self.node_5 = Some(node_5);
                 self.root_idx += 1;
                 continue;
@@ -241,6 +282,7 @@ pub struct Node4<ValueTy> {
     pub child_mask: BitVec<u64, Lsb0>,
     pub value_mask: BitVec<u64, Lsb0>,
     pub nodes: HashMap<u32, Node3<ValueTy>>,
+    pub data: Vec<ValueTy>,
     pub origin: glam::IVec3,
 }
 
@@ -258,6 +300,7 @@ pub struct Node5<ValueTy> {
     pub child_mask: BitVec<u64, Lsb0>,
     pub value_mask: BitVec<u64, Lsb0>,
     pub nodes: HashMap<u32, Node4<ValueTy>>,
+    pub data: Vec<ValueTy>,
     pub origin: glam::IVec3,
 }
 

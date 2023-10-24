@@ -479,6 +479,7 @@ impl<R: Read + Seek> VdbReader<R> {
                 child_mask: node_5.child_mask.clone(),
                 value_mask: node_5.value_mask.clone(),
                 nodes: Default::default(),
+                data: node_5.data,
                 origin,
             };
 
@@ -493,6 +494,7 @@ impl<R: Read + Seek> VdbReader<R> {
                     child_mask: node_4.child_mask.clone(),
                     value_mask: node_4.value_mask.clone(),
                     nodes: Default::default(),
+                    data: node_4.data,
                     origin: root.offset_to_global_coord(Index(idx as u32)).0,
                 };
 

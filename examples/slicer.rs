@@ -21,12 +21,12 @@ enum SliceAxis {
     Z,
 }
 
-impl SliceAxis {
-    pub fn unit_vec(self) -> Vec3 {
-        match self {
-            Self::X => Vec3::X,
-            Self::Y => Vec3::Y,
-            Self::Z => Vec3::Z,
+impl From<SliceAxis> for Vec3 {
+    fn from(value: SliceAxis) -> Self {
+        match value {
+            SliceAxis::X => Vec3::X,
+            SliceAxis::Y => Vec3::Y,
+            SliceAxis::Z => Vec3::Z,
         }
     }
 }
@@ -162,7 +162,7 @@ fn rebuild_model(
                 } else {
                     let mut dimension_mult = Vec3::ONE;
                     if let RenderMode::Slice(i) = settings.render_mode {
-                        dimension_mult -= i.unit_vec();
+                        dimension_mult -= Vec3::from(i);
                         pos[i as usize] = slice_index as f32;
                     }
                     dimension_mult = (dimension_mult * level.scale()).max(Vec3::ONE);

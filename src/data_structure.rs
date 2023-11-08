@@ -92,12 +92,11 @@ where
                 continue;
             } else if let (Some(idx), Some(node_4)) = (self.node_4_iter_active.next(), self.node_4)
             {
-                println!("data len: {} value mask len: {} child mask len: {} idx: {} file version: {} node compression version: {}", node_4.data.len(), node_4.value_mask.len(), node_4.child_mask.len(), idx, self.grid.descriptor.file_version, OPENVDB_FILE_VERSION_NODE_MASK_COMPRESSION);
                 return Some((
                     node_4.offset_to_global_coord(Index(idx as u32)).0.as_vec3(),
-
                     if self.grid.descriptor.file_version < OPENVDB_FILE_VERSION_NODE_MASK_COMPRESSION {
-                        node_4.data[node_4.node_4_iter_active.iter_zeros().nth(idx).unwrap()]
+                        let node_mask_compression_idx = node_4.child_mask.iter().by_vals().take(idx).fold(0, |old, val| old + (!val as usize)); // count 0's before idx
+                        node_4.data[node_mask_compression_idx]
                     } else {
                         node_4.data[idx]
                     },

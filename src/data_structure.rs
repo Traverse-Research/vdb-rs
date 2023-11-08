@@ -1,6 +1,6 @@
-use crate::OPENVDB_FILE_VERSION_NODE_MASK_COMPRESSION;
 use crate::coordinates::{GlobalCoord, Index, LocalCoord};
 use crate::transform::Map;
+use crate::OPENVDB_FILE_VERSION_NODE_MASK_COMPRESSION;
 use bitflags::bitflags;
 use bitvec::prelude::*;
 use bitvec::slice::IterOnes;
@@ -94,8 +94,15 @@ where
             {
                 return Some((
                     node_4.offset_to_global_coord(Index(idx as u32)).0.as_vec3(),
-                    if self.grid.descriptor.file_version < OPENVDB_FILE_VERSION_NODE_MASK_COMPRESSION {
-                        let node_mask_compression_idx = node_4.child_mask.iter().by_vals().take(idx).fold(0, |old, val| old + (!val as usize)); // count 0's before idx
+                    if self.grid.descriptor.file_version
+                        < OPENVDB_FILE_VERSION_NODE_MASK_COMPRESSION
+                    {
+                        let node_mask_compression_idx = node_4
+                            .child_mask
+                            .iter()
+                            .by_vals()
+                            .take(idx)
+                            .fold(0, |old, val| old + (!val as usize)); // count 0's before idx
                         node_4.data[node_mask_compression_idx]
                     } else {
                         node_4.data[idx]

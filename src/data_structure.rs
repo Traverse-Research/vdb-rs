@@ -1,3 +1,4 @@
+use crate::OPENVDB_FILE_VERSION_NODE_MASK_COMPRESSION;
 use crate::coordinates::{GlobalCoord, Index, LocalCoord};
 use crate::transform::Map;
 use bitflags::bitflags;
@@ -91,9 +92,15 @@ where
                 continue;
             } else if let (Some(idx), Some(node_4)) = (self.node_4_iter_active.next(), self.node_4)
             {
+                println!("data len: {} value mask len: {} child mask len: {} idx: {} file version: {} node compression version: {}", node_4.data.len(), node_4.value_mask.len(), node_4.child_mask.len(), idx, self.grid.descriptor.file_version, OPENVDB_FILE_VERSION_NODE_MASK_COMPRESSION);
                 return Some((
                     node_4.offset_to_global_coord(Index(idx as u32)).0.as_vec3(),
-                    node_4.data[idx],
+
+                    if self.grid.descriptor.file_version < OPENVDB_FILE_VERSION_NODE_MASK_COMPRESSION {
+                        node_4.data[node_4.node_4_iter_active.iter_zeros().nth(idx).unwrap()]
+                    } else {
+                        node_4.data[idx]
+                    },
                     VdbLevel::Node3,
                 ));
             }
@@ -130,6 +137,7 @@ where
 #[derive(Debug, Clone)]
 pub struct GridDescriptor {
     pub name: String,
+    pub(crate) file_version: u32,
     /// If not empty, the name of another grid that shares this grid's tree
     pub instance_parent: String,
     pub grid_type: String,

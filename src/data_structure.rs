@@ -1,5 +1,6 @@
 use crate::coordinates::{GlobalCoord, Index, LocalCoord};
 use crate::transform::Map;
+use crate::OPENVDB_FILE_VERSION_NODE_MASK_COMPRESSION;
 use bitflags::bitflags;
 use bitvec::prelude::*;
 use bitvec::slice::IterOnes;
@@ -93,7 +94,19 @@ where
             {
                 return Some((
                     node_4.offset_to_global_coord(Index(idx as u32)).0.as_vec3(),
-                    node_4.data[idx],
+                    if self.grid.descriptor.file_version
+                        < OPENVDB_FILE_VERSION_NODE_MASK_COMPRESSION
+                    {
+                        let node_mask_compression_idx = node_4
+                            .child_mask
+                            .iter()
+                            .by_vals()
+                            .take(idx)
+                            .fold(0, |old, val| old + (!val as usize)); // count 0's before idx
+                        node_4.data[node_mask_compression_idx]
+                    } else {
+                        node_4.data[idx]
+                    },
                     VdbLevel::Node3,
                 ));
             }
@@ -130,6 +143,7 @@ where
 #[derive(Debug, Clone)]
 pub struct GridDescriptor {
     pub name: String,
+    pub file_version: u32,
     /// If not empty, the name of another grid that shares this grid's tree
     pub instance_parent: String,
     pub grid_type: String,

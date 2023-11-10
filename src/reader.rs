@@ -619,6 +619,7 @@ impl<R: Read + Seek> VdbReader<R> {
 
             let mut gd = GridDescriptor {
                 name: name.clone(),
+                file_version: header.file_version,
                 grid_type,
                 instance_parent,
                 grid_pos,

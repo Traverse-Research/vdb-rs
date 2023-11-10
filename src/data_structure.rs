@@ -2,11 +2,13 @@ use crate::coordinates::{GlobalCoord, Index, LocalCoord};
 use crate::transform::Map;
 use crate::OPENVDB_FILE_VERSION_NODE_MASK_COMPRESSION;
 use bitflags::bitflags;
+use bitvec::index::BitMask;
 use bitvec::prelude::*;
 use bitvec::slice::IterOnes;
 use glam::{IVec3, Vec3};
 use std::collections::HashMap;
 use std::io::{Read, Seek, SeekFrom};
+use std::ops::AddAssign;
 
 #[derive(thiserror::Error, Debug)]
 pub enum GridMetadataError {
@@ -26,11 +28,9 @@ impl<ValueTy> Grid<ValueTy> {
         GridIter {
             grid: self,
             root_idx: 0,
-            node_5_iter_active: Default::default(),
-            node_5_iter_child: Default::default(),
-            node_4_iter_active: Default::default(),
-            node_4_iter_child: Default::default(),
-            node_3_iter_child: Default::default(),
+            node_5_bit_index: 1 << 5,
+            node_4_bit_index: 1 << 4,
+            node_3_bit_index: 1 << 3,
 
             node_5: None,
             node_4: None,
@@ -39,7 +39,7 @@ impl<ValueTy> Grid<ValueTy> {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum VdbLevel {
     Node4,
     Node3,
@@ -48,7 +48,7 @@ pub enum VdbLevel {
 impl VdbLevel {
     pub fn scale(self) -> f32 {
         match self {
-            VdbLevel::Node4 => (1 << 4) as f32,
+            VdbLevel::Node4 => (1 << (4 + 3)) as f32,
             VdbLevel::Node3 => (1 << 3) as f32,
             VdbLevel::Voxel => 1.0,
         }
@@ -58,15 +58,36 @@ impl VdbLevel {
 pub struct GridIter<'a, ValueTy> {
     grid: &'a Grid<ValueTy>,
     root_idx: usize,
-    node_5_iter_active: IterOnes<'a, u64, Lsb0>,
-    node_5_iter_child: IterOnes<'a, u64, Lsb0>,
-    node_4_iter_active: IterOnes<'a, u64, Lsb0>,
-    node_4_iter_child: IterOnes<'a, u64, Lsb0>,
-    node_3_iter_child: IterOnes<'a, u64, Lsb0>,
+    node_5_bit_index: usize,
+    node_4_bit_index: usize,
+    node_3_bit_index: usize,
 
     node_5: Option<&'a Node5<ValueTy>>,
     node_4: Option<&'a Node4<ValueTy>>,
     node_3: Option<&'a Node3<ValueTy>>,
+}
+
+impl<'a, ValueTy> GridIter<'a, ValueTy>
+where
+    ValueTy: Copy,
+{
+    fn get_tile_value(
+        &self,
+        bit_index: usize,
+        bit_mask: &BitVec<u64>,
+        data: &Vec<ValueTy>,
+    ) -> ValueTy {
+        if self.grid.descriptor.file_version < OPENVDB_FILE_VERSION_NODE_MASK_COMPRESSION {
+            let node_mask_compression_idx = bit_mask
+                .iter()
+                .by_vals()
+                .take(bit_index)
+                .fold(0, |old, val| old + (!val as usize)); // count 0's before idx
+            data[node_mask_compression_idx]
+        } else {
+            data[bit_index]
+        }
+    }
 }
 
 impl<'a, ValueTy> Iterator for GridIter<'a, ValueTy>
@@ -76,62 +97,62 @@ where
     type Item = (Vec3, ValueTy, VdbLevel);
 
     fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            if let (Some(idx), Some(node_3)) = (self.node_3_iter_child.next(), self.node_3) {
-                let v = node_3.buffer[idx];
-                let global_coord = node_3.offset_to_global_coord(Index(idx as u32));
-                let c = global_coord.0.as_vec3();
-                return Some((c, v, VdbLevel::Voxel));
+        'outer: loop {
+            if let Some(node_3) = self.node_3 {
+                while self.node_3_bit_index < (1 << 3 * 3) {
+                    let idx = self.node_3_bit_index;
+                    self.node_3_bit_index += 1;
+                    if node_3.value_mask[idx] {
+                        let v = node_3.buffer[idx];
+                        let global_coord = node_3.offset_to_global_coord(Index(idx as u32));
+                        let c = global_coord.0.as_vec3();
+                        return Some((c, v, VdbLevel::Voxel));
+                    }
+                }
             }
 
             // either iterate over the child bits and continue to child, or iterate over active bits and return large voxels
-            if let (Some(idx), Some(node_4)) = (self.node_4_iter_child.next(), self.node_4) {
-                let node_3 = &node_4.nodes[&(idx as u32)];
-                self.node_3_iter_child = node_3.value_mask.iter_ones();
-                self.node_3 = Some(node_3);
-                continue;
-            } else if let (Some(idx), Some(node_4)) = (self.node_4_iter_active.next(), self.node_4)
-            {
-                return Some((
-                    node_4.offset_to_global_coord(Index(idx as u32)).0.as_vec3(),
-                    if self.grid.descriptor.file_version
-                        < OPENVDB_FILE_VERSION_NODE_MASK_COMPRESSION
-                    {
-                        let node_mask_compression_idx = node_4
-                            .child_mask
-                            .iter()
-                            .by_vals()
-                            .take(idx)
-                            .fold(0, |old, val| old + (!val as usize)); // count 0's before idx
-                        node_4.data[node_mask_compression_idx]
-                    } else {
-                        node_4.data[idx]
-                    },
-                    VdbLevel::Node3,
-                ));
+            if let Some(node_4) = self.node_4 {
+                while self.node_4_bit_index < (1 << 4 * 3) {
+                    let idx = self.node_4_bit_index;
+                    self.node_4_bit_index += 1;
+                    if node_4.value_mask[idx] {
+                        self.node_4_bit_index = (1 << 4 * 3);
+                        return Some((
+                            node_4.offset_to_global_coord(Index(idx as u32)).0.as_vec3(),
+                            self.get_tile_value(idx, &node_4.child_mask, &node_4.data),
+                            VdbLevel::Node3,
+                        ));
+                    } else if node_4.child_mask[idx] {
+                        self.node_3_bit_index = 0;
+                        self.node_3 = Some(&node_4.nodes[&(idx as u32)]);
+                        continue 'outer;
+                    }
+                }
             }
 
-            // either iterate over the child bits and continue to child, or iterate over active bits and return large voxels
-            if let (Some(idx), Some(node_5)) = (self.node_5_iter_child.next(), self.node_5) {
-                let node_4 = &node_5.nodes[&(idx as u32)];
-                self.node_4_iter_active = node_4.value_mask.iter_ones();
-                self.node_4_iter_child = node_4.child_mask.iter_ones();
-                self.node_4 = Some(node_4);
-                continue;
-            } else if let (Some(idx), Some(node_5)) = (self.node_5_iter_active.next(), self.node_5)
-            {
-                return Some((
-                    node_5.offset_to_global_coord(Index(idx as u32)).0.as_vec3(),
-                    node_5.data[idx],
-                    VdbLevel::Node4,
-                ));
+            if let Some(node_5) = self.node_5 {
+                while self.node_5_bit_index < (1 << 5 * 3) {
+                    let idx = self.node_5_bit_index;
+                    self.node_5_bit_index += 1;
+                    if node_5.value_mask[idx] {
+                        self.node_5_bit_index = (1 << 5 * 3);
+                        return Some((
+                            node_5.offset_to_global_coord(Index(idx as u32)).0.as_vec3(),
+                            self.get_tile_value(idx, &node_5.child_mask, &node_5.data),
+                            VdbLevel::Node4,
+                        ));
+                    } else if node_5.child_mask[idx] {
+                        self.node_4_bit_index = 0;
+                        self.node_4 = Some(&node_5.nodes[&(idx as u32)]);
+                        continue 'outer;
+                    }
+                }
             }
 
             if self.root_idx < self.grid.tree.root_nodes.len() {
-                let node_5 = &self.grid.tree.root_nodes[self.root_idx];
-                self.node_5_iter_active = node_5.value_mask.iter_ones();
-                self.node_5_iter_child = node_5.child_mask.iter_ones();
-                self.node_5 = Some(node_5);
+                self.node_5_bit_index = 0;
+                self.node_5 = Some(&self.grid.tree.root_nodes[self.root_idx]);
                 self.root_idx += 1;
                 continue;
             }

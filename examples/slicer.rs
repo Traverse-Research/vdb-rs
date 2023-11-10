@@ -195,7 +195,7 @@ fn setup(mut commands: Commands, mut color_options_map: ResMut<CuboidMaterialMap
     let grid = load_grid();
 
     commands.insert_resource(RenderSettings {
-        render_mode: RenderMode::FirstDensity,
+        render_mode: RenderMode::Tiles,
         render_slice_index: 0,
         min_slice_indices: grid.descriptor.aabb_min().unwrap(),
         max_slice_indices: grid.descriptor.aabb_max().unwrap(),

@@ -143,7 +143,7 @@ where
 #[derive(Debug, Clone)]
 pub struct GridDescriptor {
     pub name: String,
-    pub(crate) file_version: u32,
+    pub file_version: u32,
     /// If not empty, the name of another grid that shares this grid's tree
     pub instance_parent: String,
     pub grid_type: String,

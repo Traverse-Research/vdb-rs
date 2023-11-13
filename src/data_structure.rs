@@ -7,6 +7,7 @@ use bitvec::prelude::*;
 use bitvec::slice::IterOnes;
 use glam::{IVec3, Vec3};
 use std::collections::HashMap;
+use std::fmt::Debug;
 use std::io::{Read, Seek, SeekFrom};
 use std::ops::AddAssign;
 
@@ -92,14 +93,14 @@ where
 
 impl<'a, ValueTy> Iterator for GridIter<'a, ValueTy>
 where
-    ValueTy: Copy,
+    ValueTy: Copy + Debug,
 {
     type Item = (Vec3, ValueTy, VdbLevel);
 
     fn next(&mut self) -> Option<Self::Item> {
         'outer: loop {
             if let Some(node_3) = self.node_3 {
-                while self.node_3_bit_index < (1 << 3 * 3) {
+                while self.node_3_bit_index < (1 << (3 * 3)) {
                     let idx = self.node_3_bit_index;
                     self.node_3_bit_index += 1;
                     if node_3.value_mask[idx] {
@@ -113,39 +114,46 @@ where
 
             // either iterate over the child bits and continue to child, or iterate over active bits and return large voxels
             if let Some(node_4) = self.node_4 {
-                while self.node_4_bit_index < (1 << 4 * 3) {
+                while self.node_4_bit_index < (1 << (4 * 3)) {
                     let idx = self.node_4_bit_index;
                     self.node_4_bit_index += 1;
-                    if node_4.value_mask[idx] {
-                        self.node_4_bit_index = (1 << 4 * 3);
+                    if node_4.child_mask[idx] {
+                        self.node_3_bit_index = 0;
+                        self.node_3 = Some(&node_4.nodes[&(idx as u32)]);
+                        continue 'outer;
+                    } else if node_4.value_mask[idx] {
+                        self.node_4_bit_index = (1 << (4 * 3));
                         return Some((
                             node_4.offset_to_global_coord(Index(idx as u32)).0.as_vec3(),
                             self.get_tile_value(idx, &node_4.child_mask, &node_4.data),
                             VdbLevel::Node3,
                         ));
-                    } else if node_4.child_mask[idx] {
-                        self.node_3_bit_index = 0;
-                        self.node_3 = Some(&node_4.nodes[&(idx as u32)]);
-                        continue 'outer;
                     }
                 }
             }
 
             if let Some(node_5) = self.node_5 {
-                while self.node_5_bit_index < (1 << 5 * 3) {
+                while self.node_5_bit_index < (1 << (5 * 3)) {
                     let idx = self.node_5_bit_index;
                     self.node_5_bit_index += 1;
-                    if node_5.value_mask[idx] {
-                        self.node_5_bit_index = (1 << 5 * 3);
+                    if node_5.child_mask[idx] {
+                        self.node_4_bit_index = 0;
+                        self.node_4 = Some(&node_5.nodes[&(idx as u32)]);
+                        continue 'outer;
+                    } else if node_5.value_mask[idx] {
+                        self.node_5_bit_index = (1 << (5 * 3));
+                        println!(
+                            "{} {} {} {:?}",
+                            node_5.value_mask.count_ones(),
+                            node_5.child_mask.count_ones(),
+                            node_5.offset_to_global_coord(Index(idx as u32)).0.as_vec3(),
+                            self.get_tile_value(idx, &node_5.child_mask, &node_5.data)
+                        );
                         return Some((
                             node_5.offset_to_global_coord(Index(idx as u32)).0.as_vec3(),
                             self.get_tile_value(idx, &node_5.child_mask, &node_5.data),
                             VdbLevel::Node4,
                         ));
-                    } else if node_5.child_mask[idx] {
-                        self.node_4_bit_index = 0;
-                        self.node_4 = Some(&node_5.nodes[&(idx as u32)]);
-                        continue 'outer;
                     }
                 }
             }

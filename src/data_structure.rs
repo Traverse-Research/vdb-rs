@@ -48,7 +48,7 @@ pub enum VdbLevel {
 impl VdbLevel {
     pub fn scale(self) -> f32 {
         match self {
-            VdbLevel::Node4 => (1 << 4) as f32,
+            VdbLevel::Node4 => (1 << (4 + 3)) as f32,
             VdbLevel::Node3 => (1 << 3) as f32,
             VdbLevel::Voxel => 1.0,
         }

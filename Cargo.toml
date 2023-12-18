@@ -35,5 +35,5 @@ thiserror = "1"
 [dev-dependencies]
 bevy = { version = "0.11", default-features = false, features = ["bevy_pbr"] }
 bevy-aabb-instancing = "0.10"
-bevy_egui = "0.22"
+bevy_egui = "0.24"
 smooth-bevy-cameras = "0.9"

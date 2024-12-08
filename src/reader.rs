@@ -230,7 +230,7 @@ impl<R: Read + Seek> VdbReader<R> {
         count: usize,
     ) -> Result<Vec<T>, ParseError> {
         if count == 0 {
-            return Ok(vec![T::zeroed(); count]);
+            return Ok(Vec::new());
         }
         Ok(if gd.compression.contains(Compression::BLOSC) {
             let num_compressed_bytes = reader.read_i64::<LittleEndian>()?;
@@ -279,10 +279,7 @@ impl<R: Read + Seek> VdbReader<R> {
                         "Skipping blosc decompression because of a {}-count read",
                         count
                     );
-                    {
-                        T::zeroed();
-                        vec![] as std::vec::Vec<T>
-                    }
+                    Vec::new()
                 }
             }
         } else if gd.compression.contains(Compression::ZIP) {

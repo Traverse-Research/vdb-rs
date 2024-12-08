@@ -229,10 +229,10 @@ impl<R: Read + Seek> VdbReader<R> {
         gd: &GridDescriptor,
         count: usize,
     ) -> Result<Vec<T>, ParseError> {
+        if count <= 0 {
+            return Ok(vec![T::zeroed(); count as usize]);
+        }
         Ok(if gd.compression.contains(Compression::BLOSC) {
-            if count <= 0 {
-                return Ok(vec![T::zeroed(); count as usize]);
-            }
             let num_compressed_bytes = reader.read_i64::<LittleEndian>()?;
             let compressed_count = num_compressed_bytes / std::mem::size_of::<T>() as i64;
 

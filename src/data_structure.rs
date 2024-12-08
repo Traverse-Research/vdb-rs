@@ -69,7 +69,7 @@ pub struct GridIter<'a, ValueTy> {
     node_3: Option<&'a Node3<ValueTy>>,
 }
 
-impl<'a, ValueTy> Iterator for GridIter<'a, ValueTy>
+impl<ValueTy> Iterator for GridIter<'_, ValueTy>
 where
     ValueTy: Copy,
 {

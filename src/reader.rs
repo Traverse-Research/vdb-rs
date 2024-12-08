@@ -248,6 +248,38 @@ impl<R: Read + Seek> VdbReader<R> {
         })
     }
 
+    fn print_reader_scope(reader: &mut R) {
+        let length = 256;
+        reader
+            .seek(SeekFrom::Current(-length * size_of::<i64>() as i64))
+            .unwrap();
+        for i in 0..(length * 2) {
+            let int1 = reader.read_i16::<LittleEndian>().unwrap();
+            let int2 = reader.read_i16::<LittleEndian>().unwrap();
+            let int3 = reader.read_i16::<LittleEndian>().unwrap();
+            let int4 = reader.read_i16::<LittleEndian>().unwrap();
+            print!(
+                "{i:05} {:010} {:018b} {:018b} {:018b} {:018b} {:010} {:010} {:010} {:010}",
+                reader.stream_position().unwrap(),
+                int1,
+                int2,
+                int3,
+                int4,
+                int1,
+                int2,
+                int3,
+                int4
+            );
+            if i == length {
+                print!(" <<<");
+            }
+            println!("");
+        }
+        reader
+            .seek(SeekFrom::Current(-length * size_of::<i64>() as i64))
+            .unwrap();
+    }
+
     fn read_compressed_data<T: Pod>(
         reader: &mut R,
         _archive: &ArchiveHeader,
@@ -255,7 +287,15 @@ impl<R: Read + Seek> VdbReader<R> {
         count: usize,
     ) -> Result<Vec<T>, ParseError> {
         Ok(if gd.compression.contains(Compression::BLOSC) {
-            let num_compressed_bytes = reader.read_i64::<LittleEndian>()?;
+            if count <= 0 {
+                return Ok(vec![Zeroable::zeroed(); count]);
+            }
+            dbg!(&count);
+            //Self::print_reader_scope(reader);
+            let mut num_compressed_bytes_slice = [0i32, 0i32];
+            reader.read_exact(cast_slice_mut(num_compressed_bytes_slice.as_mut_slice()))?;
+            let num_compressed_bytes = num_compressed_bytes_slice[0] as i64;
+            //let num_compressed_bytes = reader.read_i64::<LittleEndian>()?;
             dbg!(&num_compressed_bytes);
             let compressed_count = num_compressed_bytes / std::mem::size_of::<T>() as i64;
 
@@ -270,42 +310,51 @@ impl<R: Read + Seek> VdbReader<R> {
                 let mut blosc_data = vec![0u8; num_compressed_bytes as usize];
                 reader.read_exact(&mut blosc_data)?;
                 dbg!(blosc_data.len());
-                if count > 0 {
-                    let mut nbytes: usize = 0;
-                    let mut cbytes: usize = 0;
-                    let mut blocksize: usize = 0;
-                    unsafe {
-                        blosc_cbuffer_sizes(
-                            blosc_data.as_ptr().cast(),
-                            &mut nbytes,
-                            &mut cbytes,
-                            &mut blocksize,
-                        )
-                    };
-                    if nbytes == 0 {
-                        return Err(ParseError::UnsupportedBloscFormat);
-                    }
-                    let dest_size = nbytes / std::mem::size_of::<T>();
-                    let mut dest: Vec<T> = vec![Zeroable::zeroed(); dest_size];
-                    let error = unsafe {
-                        blosc_src::blosc_decompress_ctx(
-                            blosc_data.as_ptr().cast(),
-                            dest.as_mut_ptr().cast(),
-                            nbytes,
-                            1,
-                        )
-                    };
-                    if error < 1 {
-                        return Err(ParseError::InvalidBloscData);
-                    }
-                    dest
-                } else {
-                    trace!(
-                        "Skipping blosc decompression because of a {}-count read",
-                        count
-                    );
-                    vec![T::zeroed(); 0]
+                //if count > 0 {
+                //let mut nbytes: usize = 0;
+                //let mut cbytes: usize = 0;
+                //let mut blocksize: usize = 0;
+                //unsafe {
+                //    blosc_cbuffer_sizes(
+                //        blosc_data.as_ptr().cast(),
+                //        &mut nbytes,
+                //        &mut cbytes,
+                //        &mut blocksize,
+                //    )
+                //};
+                //if nbytes == 0 {
+                //    return Err(ParseError::UnsupportedBloscFormat);
+                //}
+                //let dest_size = nbytes / std::mem::size_of::<T>();
+                let mut dest: Vec<T> = vec![Zeroable::zeroed(); count];
+                let error = unsafe {
+                    blosc_src::blosc_decompress_ctx(
+                        blosc_data.as_ptr().cast(),
+                        dest.as_mut_ptr().cast(),
+                        count * size_of::<T>(),
+                        1,
+                    )
+                };
+                dbg!(&blosc_data);
+                dbg!(&cast_slice::<T, f16>(&dest));
+                if error < 1 {
+                    return Err(ParseError::InvalidBloscData);
                 }
+                if error != count as i32 * std::mem::size_of::<T>() as i32 {
+                    panic!(
+                        "expected this to be equal but got {} and {}",
+                        error,
+                        count * std::mem::size_of::<T>()
+                    );
+                }
+                dest
+                //} else {
+                //    trace!(
+                //        "Skipping blosc decompression because of a {}-count read",
+                //        count
+                //    );
+                //    vec![T::zeroed(); 0]
+                //}
             }
         } else if gd.compression.contains(Compression::ZIP) {
             let num_zipped_bytes = reader.read_i64::<LittleEndian>()?;
@@ -393,20 +442,23 @@ impl<R: Read + Seek> VdbReader<R> {
         let data = if gd.meta_data.is_half_float()
             && std::any::TypeId::of::<T>() == std::any::TypeId::of::<f32>()
         {
+            dbg!("WTF YOU ARE SUPPOSED TO BE A F32");
             let data = Self::read_compressed_data::<f16>(reader, archive, gd, count)?;
             bytemuck::cast_vec(data.into_iter().map(f16::to_f32).collect::<Vec<f32>>())
         } else if !gd.meta_data.is_half_float()
             && std::any::TypeId::of::<T>() == std::any::TypeId::of::<f16>()
         {
+            dbg!("WTF YOU ARE SUPPOSED TO BE A F16");
             let data = Self::read_compressed_data::<f32>(reader, archive, gd, count)?;
             bytemuck::cast_vec(data.into_iter().map(f16::from_f32).collect::<Vec<_>>())
         } else {
-            Self::read_compressed_data(reader, archive, gd, count)?
+            dbg!("ALL AS EXPECTED");
+            Self::read_compressed_data::<T>(reader, archive, gd, count)?
         };
 
         Ok(
             if gd.compression.contains(Compression::ACTIVE_MASK) && data.len() != num_values {
-                trace!(
+                dbg!(
                     "Expanding active mask data {} to {}",
                     data.len(),
                     num_values
@@ -525,6 +577,9 @@ impl<R: Read + Seek> VdbReader<R> {
             let _active = reader.read_u8()?;
             dbg!(_active);
         }
+
+        dbg!(&header);
+        dbg!(&gd);
 
         for _root_idx in 0..number_of_root_nodes {
             dbg!("----------------READING ROOT NODE TOPOLOGY------------");

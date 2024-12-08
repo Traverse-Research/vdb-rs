@@ -7,13 +7,15 @@ use crate::transform::Map;
 
 use bitvec::prelude::*;
 use blosc_src::blosc_cbuffer_sizes;
-use bytemuck::{bytes_of_mut, cast_slice_mut, Pod, Zeroable};
+use bytemuck::{bytes_of_mut, cast, cast_slice, cast_slice_mut, Pod, Zeroable};
 use byteorder::{LittleEndian, ReadBytesExt};
 
 use half::f16;
 use log::{trace, warn};
-use std::collections::HashMap;
+use std::any::TypeId;
+use std::collections::{BTreeMap, HashMap};
 use std::io::{Read, Seek, SeekFrom};
+use std::mem::size_of;
 
 pub const OPENVDB_MIN_SUPPORTED_VERSION: u32 = OPENVDB_FILE_VERSION_ROOTNODE_MAP;
 
@@ -65,32 +67,35 @@ fn read_d_vec3<R: Read + Seek>(reader: &mut R) -> Result<glam::DVec3, ParseError
     let x = reader.read_f64::<LittleEndian>()?;
     let y = reader.read_f64::<LittleEndian>()?;
     let z = reader.read_f64::<LittleEndian>()?;
-    Ok(glam::DVec3::new(x, y, z))
+    let vec = glam::DVec3::new(x, y, z);
+    Ok(vec)
 }
 
 fn read_i_vec3<R: Read + Seek>(reader: &mut R) -> Result<glam::IVec3, ParseError> {
     let x = reader.read_i32::<LittleEndian>()?;
     let y = reader.read_i32::<LittleEndian>()?;
     let z = reader.read_i32::<LittleEndian>()?;
-
-    Ok(glam::IVec3::new(x, y, z))
+    let vec = glam::IVec3::new(x, y, z);
+    Ok(vec)
 }
 
 #[derive(Debug)]
 pub struct VdbReader<R: Read + Seek> {
     reader: R,
     pub header: ArchiveHeader,
-    pub grid_descriptors: HashMap<String, GridDescriptor>,
+    pub grid_descriptors: BTreeMap<String, GridDescriptor>,
 }
 
 impl<R: Read + Seek> VdbReader<R> {
     pub fn new(mut reader: R) -> Result<Self, ParseError> {
         let magic = reader.read_u64::<LittleEndian>()?;
+        dbg!(&magic);
         if magic == 0x2042445600000000 {
             return Err(ParseError::MagicMismatch);
         }
 
         let file_version = reader.read_u32::<LittleEndian>()?;
+        dbg!(&file_version);
         if file_version < OPENVDB_MIN_SUPPORTED_VERSION {
             return Err(ParseError::UnsupportedVersion(file_version));
         }
@@ -98,9 +103,12 @@ impl<R: Read + Seek> VdbReader<R> {
         // Stored from version 211 onward, our minimum supported version is 213
         let library_version_major = reader.read_u32::<LittleEndian>()?;
         let library_version_minor = reader.read_u32::<LittleEndian>()?;
+        dbg!(&library_version_major);
+        dbg!(&library_version_minor);
 
         // Stored from version 212 onward, our minimum supported version is 213
         let has_grid_offsets = reader.read_u8()? == 1;
+        dbg!(&has_grid_offsets);
 
         // From version 222 on, compression information is stored per grid.
         let mut compression = Compression::DEFAULT_COMPRESSION;
@@ -114,6 +122,7 @@ impl<R: Read + Seek> VdbReader<R> {
             .contains(&file_version)
         {
             let is_compressed = reader.read_u8()? == 1;
+            dbg!(is_compressed);
             if is_compressed {
                 compression = Compression::ZIP;
             } else {
@@ -129,9 +138,11 @@ impl<R: Read + Seek> VdbReader<R> {
             // Older versions stored the UUID as a byte string.
             todo!("File version {}", file_version);
         };
+        dbg!(&guid);
 
         let meta_data = Self::read_metadata(&mut reader)?;
         let grid_count = reader.read_u32::<LittleEndian>()?;
+        dbg!(&grid_count);
 
         let header = ArchiveHeader {
             file_version,
@@ -158,7 +169,14 @@ impl<R: Read + Seek> VdbReader<R> {
         name: &str,
     ) -> Result<Grid<ExpectedTy>, ParseError> {
         let grid_descriptor = self.grid_descriptors.get(name).cloned();
-        let gd = grid_descriptor.ok_or_else(|| ParseError::InvalidGridName(name.to_owned()))?;
+        let mut gd = grid_descriptor.ok_or_else(|| ParseError::InvalidGridName(name.to_owned()))?;
+        gd.meta_data.0.insert(
+            "file_delayed_load".to_string(),
+            MetadataValue::Unknown {
+                name: "__delayedload".to_string(),
+                data: vec![0],
+            },
+        );
         Self::read_grid_internal(&self.header, &mut self.reader, gd)
     }
 
@@ -173,6 +191,7 @@ impl<R: Read + Seek> VdbReader<R> {
 
     fn read_transform(reader: &mut R) -> Result<Map, ParseError> {
         let name = Self::read_name(reader)?;
+        dbg!(&name);
 
         Ok(match name.as_str() {
             "UniformScaleMap" => Map::UniformScaleMap {
@@ -200,18 +219,24 @@ impl<R: Read + Seek> VdbReader<R> {
         header: &ArchiveHeader,
         gd: &GridDescriptor,
     ) -> Result<NodeHeader<ValueTy>, ParseError> {
+        dbg!("--------------READING NODE HEADER--------------------");
         let linear_dim = (1 << (3 * log_2_dim)) as usize;
 
         let mut child_mask = bitvec![u64, Lsb0; 0; linear_dim];
         let mut value_mask = bitvec![u64, Lsb0; 0; linear_dim];
         reader.read_u64_into::<LittleEndian>(child_mask.as_raw_mut_slice())?;
         reader.read_u64_into::<LittleEndian>(value_mask.as_raw_mut_slice())?;
+        dbg!(child_mask.count_ones());
+        dbg!(child_mask.count_zeros());
+        dbg!(value_mask.count_ones());
+        dbg!(value_mask.count_zeros());
 
         let linear_dim = if header.file_version < OPENVDB_FILE_VERSION_NODE_MASK_COMPRESSION {
             child_mask.count_zeros()
         } else {
             (1 << (3 * log_2_dim)) as usize
         };
+        dbg!(linear_dim);
 
         let data = Self::read_compressed(reader, header, gd, linear_dim, value_mask.as_bitslice())?;
 
@@ -231,17 +256,20 @@ impl<R: Read + Seek> VdbReader<R> {
     ) -> Result<Vec<T>, ParseError> {
         Ok(if gd.compression.contains(Compression::BLOSC) {
             let num_compressed_bytes = reader.read_i64::<LittleEndian>()?;
+            dbg!(&num_compressed_bytes);
             let compressed_count = num_compressed_bytes / std::mem::size_of::<T>() as i64;
 
             trace!("Reading blosc data, {} bytes", num_compressed_bytes);
             if num_compressed_bytes <= 0 {
+                assert_eq!(-compressed_count as usize, count);
                 let mut data = vec![T::zeroed(); (-compressed_count) as usize];
                 reader.read_exact(cast_slice_mut(&mut data))?;
-                assert_eq!(-compressed_count as usize, count);
+                dbg!(data.len());
                 data
             } else {
                 let mut blosc_data = vec![0u8; num_compressed_bytes as usize];
                 reader.read_exact(&mut blosc_data)?;
+                dbg!(blosc_data.len());
                 if count > 0 {
                     let mut nbytes: usize = 0;
                     let mut cbytes: usize = 0;
@@ -281,16 +309,19 @@ impl<R: Read + Seek> VdbReader<R> {
             }
         } else if gd.compression.contains(Compression::ZIP) {
             let num_zipped_bytes = reader.read_i64::<LittleEndian>()?;
+            dbg!(&num_zipped_bytes);
             let compressed_count = num_zipped_bytes / std::mem::size_of::<T>() as i64;
 
             trace!("Reading zipped data, {} bytes", num_zipped_bytes);
             if num_zipped_bytes <= 0 {
                 let mut data = vec![T::zeroed(); (-compressed_count) as usize];
                 reader.read_exact(cast_slice_mut(&mut data))?;
+                dbg!(&data.len());
                 data
             } else {
                 let mut zipped_data = vec![0u8; num_zipped_bytes as usize];
                 reader.read_exact(&mut zipped_data)?;
+                dbg!(&zipped_data.len());
 
                 let mut zip_reader = flate2::read::ZlibDecoder::new(zipped_data.as_slice());
                 let mut data = vec![T::zeroed(); count];
@@ -302,6 +333,7 @@ impl<R: Read + Seek> VdbReader<R> {
 
             let mut data = vec![T::zeroed(); count];
             reader.read_exact(cast_slice_mut(&mut data))?;
+            dbg!(&data.len());
             data
         })
     }
@@ -314,8 +346,10 @@ impl<R: Read + Seek> VdbReader<R> {
         value_mask: &BitSlice<u64, Lsb0>,
     ) -> Result<Vec<T>, ParseError> {
         let mut meta_data: NodeMetaData = NodeMetaData::NoMaskAndAllVals;
+        dbg!("--------------------READING COMPRESSION----------------------");
         if archive.file_version >= OPENVDB_FILE_VERSION_NODE_MASK_COMPRESSION {
             meta_data = reader.read_u8()?.try_into()?;
+            dbg!(meta_data);
         }
 
         // jb-todo: proper background value support
@@ -326,9 +360,11 @@ impl<R: Read + Seek> VdbReader<R> {
             || meta_data == NodeMetaData::MaskAndTwoInactiveVals
         {
             reader.read_exact(bytes_of_mut(&mut inactive_val0))?;
+            dbg!(&cast::<T, f16>(inactive_val0));
 
             if meta_data == NodeMetaData::MaskAndTwoInactiveVals {
                 reader.read_exact(bytes_of_mut(&mut inactive_val1))?;
+                dbg!(&cast::<T, f16>(inactive_val1));
             }
         }
 
@@ -340,6 +376,8 @@ impl<R: Read + Seek> VdbReader<R> {
         {
             // let selection_mask = reader.read_u32::<LittleEndian>()?;
             reader.read_u64_into::<LittleEndian>(selection_mask.as_raw_mut_slice())?;
+            dbg!(selection_mask.count_ones());
+            dbg!(selection_mask.count_zeros());
         }
 
         let count = if gd.compression.contains(Compression::ACTIVE_MASK)
@@ -396,13 +434,17 @@ impl<R: Read + Seek> VdbReader<R> {
 
     fn read_metadata(reader: &mut R) -> Result<Metadata, ParseError> {
         let meta_data_count = reader.read_u32::<LittleEndian>()?;
+        dbg!(&meta_data_count);
         let mut meta_data = Metadata::default();
 
         for _ in 0..meta_data_count {
             let name = Self::read_name(reader)?;
+            dbg!(&name);
             let data_type = Self::read_name(reader)?;
+            dbg!(&data_type);
 
             let len = reader.read_u32::<LittleEndian>()?;
+            dbg!(&len);
 
             meta_data.0.insert(
                 name,
@@ -410,24 +452,33 @@ impl<R: Read + Seek> VdbReader<R> {
                     "string" => MetadataValue::String(read_string(reader, len as usize)?),
                     "bool" => {
                         let val = reader.read_u8()?;
+                        dbg!(&val);
                         MetadataValue::Bool(val != 0)
                     }
                     "int32" => {
                         let val = reader.read_i32::<LittleEndian>()?;
+                        dbg!(&val);
                         MetadataValue::I32(val)
                     }
                     "int64" => {
                         let val = reader.read_i64::<LittleEndian>()?;
+                        dbg!(&val);
                         MetadataValue::I64(val)
                     }
                     "float" => {
                         let val = reader.read_f32::<LittleEndian>()?;
+                        dbg!(&val);
                         MetadataValue::Float(val)
                     }
-                    "vec3i" => MetadataValue::Vec3i(read_i_vec3(reader)?),
+                    "vec3i" => {
+                        let val = read_i_vec3(reader)?;
+                        dbg!(&val);
+                        MetadataValue::Vec3i(val)
+                    }
                     name => {
                         let mut data = vec![0u8; len as usize];
                         reader.read_exact(&mut data)?;
+                        dbg!(&data.len());
 
                         warn!("Unknown metadata value {}", name);
 
@@ -454,26 +505,35 @@ impl<R: Read + Seek> VdbReader<R> {
         reader: &mut R,
     ) -> Result<Tree<ValueTy>, ParseError> {
         let buffer_count = reader.read_u32::<LittleEndian>()?;
+        dbg!(buffer_count);
         assert_eq!(buffer_count, 1, "Multi-buffer trees are not supported");
 
         let _root_node_background_value = reader.read_u32::<LittleEndian>()?;
+        dbg!(_root_node_background_value);
         let number_of_tiles = reader.read_u32::<LittleEndian>()?;
+        dbg!(number_of_tiles);
         let number_of_root_nodes = reader.read_u32::<LittleEndian>()?;
+        dbg!(number_of_root_nodes);
 
         let mut root_nodes = vec![];
 
         for _tile_idx in 0..number_of_tiles {
             let _vec = read_i_vec3(reader)?;
+            dbg!(_vec);
             let _value = reader.read_u32::<LittleEndian>()?;
+            dbg!(_value);
             let _active = reader.read_u8()?;
+            dbg!(_active);
         }
 
         for _root_idx in 0..number_of_root_nodes {
+            dbg!("----------------READING ROOT NODE TOPOLOGY------------");
             let origin = read_i_vec3(reader)?;
+            dbg!(origin);
 
             let node_5 =
                 Self::read_node_header::<ValueTy>(reader, 5 /* 32 * 32 * 32 */, header, gd)?;
-            let mut child_5 = HashMap::default();
+            let mut child_5 = BTreeMap::default();
 
             let mut root = Node5 {
                 child_mask: node_5.child_mask.clone(),
@@ -484,11 +544,12 @@ impl<R: Read + Seek> VdbReader<R> {
             };
 
             for idx in node_5.child_mask.iter_ones() {
+                dbg!("----------------READING 4 NODE TOPOLOGY------------");
                 let node_4 = Self::read_node_header::<ValueTy>(
                     reader, 4, /* 16 * 16 * 16 */
                     header, gd,
                 )?;
-                let mut child_4 = HashMap::default();
+                let mut child_4 = BTreeMap::default();
 
                 let mut cur_node_4 = Node4 {
                     child_mask: node_4.child_mask.clone(),
@@ -499,10 +560,13 @@ impl<R: Read + Seek> VdbReader<R> {
                 };
 
                 for idx in node_4.child_mask.iter_ones() {
+                    dbg!("----------------READING 3 NODE TOPOLOGY------------");
                     let linear_dim = (1 << (3 * 3)) as usize;
 
                     let mut value_mask = bitvec![u64, Lsb0; 0; linear_dim];
                     reader.read_u64_into::<LittleEndian>(value_mask.as_raw_mut_slice())?;
+                    dbg!(value_mask.count_ones());
+                    dbg!(value_mask.count_zeros());
 
                     child_4.insert(
                         idx as u32,
@@ -533,6 +597,7 @@ impl<R: Read + Seek> VdbReader<R> {
         tree: &mut Tree<ValueTy>,
     ) -> Result<(), ParseError> {
         gd.seek_to_blocks(reader)?;
+        println!("----------------------------------------------");
 
         for root_idx in 0..tree.root_nodes.len() {
             let node_5 = &mut tree.root_nodes[root_idx];
@@ -540,15 +605,20 @@ impl<R: Read + Seek> VdbReader<R> {
                 let node_4 = node_5.nodes.get_mut(&(idx as u32)).unwrap();
 
                 for idx in node_4.child_mask.iter_ones() {
+                    dbg!("--------------READING TREE DATA--------------------");
                     let node_3 = node_4.nodes.get_mut(&(idx as u32)).unwrap();
 
                     let linear_dim = (1 << (3 * 3)) as usize;
                     let mut value_mask = bitvec![u64, Lsb0; 0; linear_dim];
                     reader.read_u64_into::<LittleEndian>(value_mask.as_raw_mut_slice())?;
+                    dbg!(value_mask.count_ones());
+                    dbg!(value_mask.count_zeros());
 
                     if header.file_version < OPENVDB_FILE_VERSION_NODE_MASK_COMPRESSION {
                         node_3.origin = read_i_vec3(reader)?;
+                        dbg!(node_3.origin);
                         let num_buffers = reader.read_u8()?;
+                        dbg!(num_buffers);
                         assert_eq!(num_buffers, 1);
                     }
 
@@ -582,6 +652,7 @@ impl<R: Read + Seek> VdbReader<R> {
 
         if header.file_version >= OPENVDB_FILE_VERSION_GRID_INSTANCING {
             let transform = Self::read_transform(reader)?;
+            dbg!(&transform);
             let mut tree = Self::read_tree_topology(header, &gd, reader)?;
             Self::read_tree_data(header, &gd, reader, &mut tree)?;
 
@@ -598,24 +669,30 @@ impl<R: Read + Seek> VdbReader<R> {
     fn read_grid_descriptors(
         header: &ArchiveHeader,
         reader: &mut R,
-    ) -> Result<HashMap<String, GridDescriptor>, ParseError> {
+    ) -> Result<BTreeMap<String, GridDescriptor>, ParseError> {
         // Should be guaranteed by minimum file version
         assert!(header.has_grid_offsets);
 
-        let mut result = HashMap::new();
+        let mut result = BTreeMap::new();
         for _ in 0..header.grid_count {
             let name = Self::read_name(reader)?;
+            dbg!(&name);
             let grid_type = Self::read_name(reader)?;
+            dbg!(&grid_type);
 
             let instance_parent = if header.file_version >= OPENVDB_FILE_VERSION_GRID_INSTANCING {
                 Self::read_name(reader)?
             } else {
                 todo!("instance_parent, file version: {}", header.file_version)
             };
+            dbg!(&instance_parent);
 
             let grid_pos = reader.read_u64::<LittleEndian>()?;
+            dbg!(grid_pos);
             let block_pos = reader.read_u64::<LittleEndian>()?;
+            dbg!(block_pos);
             let end_pos = reader.read_u64::<LittleEndian>()?;
+            dbg!(end_pos);
 
             let mut gd = GridDescriptor {
                 name: name.clone(),
@@ -632,6 +709,7 @@ impl<R: Read + Seek> VdbReader<R> {
             gd.seek_to_grid(reader)?;
             if header.file_version >= OPENVDB_FILE_VERSION_NODE_MASK_COMPRESSION {
                 gd.compression = reader.read_u32::<LittleEndian>()?.try_into()?;
+                dbg!(gd.compression);
             }
             gd.meta_data = Self::read_metadata(reader)?;
 

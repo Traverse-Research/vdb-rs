@@ -5,7 +5,7 @@ use bitflags::bitflags;
 use bitvec::prelude::*;
 use bitvec::slice::IterOnes;
 use glam::{IVec3, Vec3};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::{Read, Seek, SeekFrom};
 
 #[derive(thiserror::Error, Debug)]
@@ -208,7 +208,7 @@ impl GridDescriptor {
 }
 
 #[derive(Debug, Default, Clone)]
-pub struct Metadata(pub HashMap<String, MetadataValue>);
+pub struct Metadata(pub BTreeMap<String, MetadataValue>);
 
 impl Metadata {
     pub fn is_half_float(&self) -> bool {
@@ -295,7 +295,7 @@ impl<ValueTy> Node for Node3<ValueTy> {
 pub struct Node4<ValueTy> {
     pub child_mask: BitVec<u64, Lsb0>,
     pub value_mask: BitVec<u64, Lsb0>,
-    pub nodes: HashMap<u32, Node3<ValueTy>>,
+    pub nodes: BTreeMap<u32, Node3<ValueTy>>,
     pub data: Vec<ValueTy>,
     pub origin: glam::IVec3,
 }
@@ -313,7 +313,7 @@ impl<ValueTy> Node for Node4<ValueTy> {
 pub struct Node5<ValueTy> {
     pub child_mask: BitVec<u64, Lsb0>,
     pub value_mask: BitVec<u64, Lsb0>,
-    pub nodes: HashMap<u32, Node4<ValueTy>>,
+    pub nodes: BTreeMap<u32, Node4<ValueTy>>,
     pub data: Vec<ValueTy>,
     pub origin: glam::IVec3,
 }

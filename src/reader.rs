@@ -279,7 +279,10 @@ impl<R: Read + Seek> VdbReader<R> {
                         "Skipping blosc decompression because of a {}-count read",
                         count
                     );
-                    vec![T::zeroed(); 0]
+                    {
+                        T::zeroed();
+                        vec![] as std::vec::Vec<T>
+                    }
                 }
             }
         } else if gd.compression.contains(Compression::ZIP) {

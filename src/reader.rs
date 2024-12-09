@@ -175,7 +175,7 @@ impl<R: Read + Seek> VdbReader<R> {
         let name = Self::read_name(reader)?;
 
         Ok(match name.as_str() {
-            "UniformScaleMap" => Map::UniformScaleMap {
+            "UniformScaleMap" | "ScaleMap" => Map::UniformScaleMap {
                 scale_values: read_d_vec3(reader)?,
                 voxel_size: read_d_vec3(reader)?,
                 scale_values_inverse: read_d_vec3(reader)?,

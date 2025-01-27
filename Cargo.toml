@@ -27,7 +27,7 @@ blosc-src = { version = "0.3.0", features = ["lz4"] }
 bytemuck = { version = "1.13", features = ["extern_crate_alloc"] }
 byteorder = "1.4"
 flate2 = "1"
-glam = ">=0.18,<=0.24"
+glam = ">=0.18, <=0.28"
 half = { version = "2.2.1", features = ["bytemuck"] }
 log = "0.4"
 thiserror = "1"

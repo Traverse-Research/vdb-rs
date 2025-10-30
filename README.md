@@ -37,8 +37,7 @@ Implementation of features however is use-case limited, so contributions in area
 
 # Broken files
 
-These are test files from the OpenVDB website; <https://www.openvdb.org/download/>. Most file seem to be loading correctly
-and displaying correctly in the `bevy` example that's provided with this library.
+These are test files from the OpenVDB website; <https://www.openvdb.org/download/>.
 
 The only failing files are the ones containing a "points" grid.
 They all fail on `ParseError::InvalidNodeMetadata` which seem to be related to the lack of Multi-Pass I/O, though most need to be investigated.

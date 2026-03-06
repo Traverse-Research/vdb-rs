@@ -230,7 +230,7 @@ fn setup(mut commands: Commands, mut color_options_map: ResMut<CuboidMaterialMap
         .spawn(Camera3dBundle::default())
         .insert(OrbitCameraBundle::new(
             OrbitCameraController::default(),
-            Vec3::new(0.0, 1.0, 10.0),
+            Vec3::new(0.0, 1.0, 120.0),
             Vec3::ZERO,
             Vec3::Y,
         ));

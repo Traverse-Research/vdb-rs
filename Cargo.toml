@@ -31,6 +31,8 @@ glam = ">=0.18,<=0.24"
 half = { version = "2.2.1", features = ["bytemuck"] }
 log = "0.4"
 thiserror = "1"
+rav1e = { version = "0.8", default-features = false }
+ivf = { version = "0.1", default-features = false }
 
 [dev-dependencies]
 bevy = { version = "0.11", default-features = false, features = ["bevy_pbr"] }

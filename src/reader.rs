@@ -229,9 +229,12 @@ impl<R: Read + Seek> VdbReader<R> {
         gd: &GridDescriptor,
         count: usize,
     ) -> Result<Vec<T>, ParseError> {
-        if count == 0 {
-            return Ok(Vec::new());
-        }
+        // NOTE: Deliberately no `count == 0` early-out here. OpenVDB's
+        // `readData()` -> `bloscFromStream()`/`unzipFromStream()` always consume
+        // the block's `i64` size header (and its payload) regardless of `count`,
+        // so returning early would leave the reader positioned mid-block and
+        // desync every subsequent read. The only place OpenVDB skips the stream
+        // is the half-float branch in `read_compressed()`.
         Ok(if gd.compression.contains(Compression::BLOSC) {
             let num_compressed_bytes = reader.read_i64::<LittleEndian>()?;
             let compressed_count = num_compressed_bytes / std::mem::size_of::<T>() as i64;
@@ -358,8 +361,18 @@ impl<R: Read + Seek> VdbReader<R> {
         let data = if gd.meta_data.is_half_float()
             && std::any::TypeId::of::<T>() == std::any::TypeId::of::<f32>()
         {
-            let data = Self::read_compressed_data::<f16>(reader, archive, gd, count)?;
-            bytemuck::cast_vec(data.into_iter().map(f16::to_f32).collect::<Vec<f32>>())
+            // OpenVDB only skips the read for half-float grids, in
+            // `HalfReader</*IsReal=*/true, T>::read()`, which bails on `count < 1`
+            // before touching the stream. Every other path goes through
+            // `readData()`, which always consumes a block, so the early-out must
+            // stay confined to this branch -- see the comment in
+            // `read_compressed_data()`.
+            if count == 0 {
+                Vec::new()
+            } else {
+                let data = Self::read_compressed_data::<f16>(reader, archive, gd, count)?;
+                bytemuck::cast_vec(data.into_iter().map(f16::to_f32).collect::<Vec<f32>>())
+            }
         } else if !gd.meta_data.is_half_float()
             && std::any::TypeId::of::<T>() == std::any::TypeId::of::<f16>()
         {

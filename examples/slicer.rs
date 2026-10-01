@@ -11,7 +11,7 @@ use vdb_rs::{Grid, Map, VdbLevel, VdbReader};
 use std::{error::Error, fs::File, io::BufReader};
 
 mod camera_controller;
-use camera_controller::{OrbitCamera, OrbitCameraPlugin};
+use camera_controller::{FlyCamera, FlyCameraPlugin};
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 enum SliceAxis {
@@ -63,7 +63,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             ..Default::default()
         }))
         .add_plugins(VertexPullingRenderPlugin { outlines: true })
-        .add_plugins(OrbitCameraPlugin)
+        .add_plugins(FlyCameraPlugin)
         .add_systems(Startup, setup)
         .add_plugins(EguiPlugin::default())
         // egui's own schedule: its context has no fonts until the pass runs, so a UI system in
@@ -231,8 +231,8 @@ fn setup(mut commands: Commands, mut color_options_map: ResMut<CuboidMaterialMap
         },
         Transform::from_xyz(4.0, 8.0, 4.0),
     ));
-    let (orbit, transform) = OrbitCamera::new(Vec3::new(0.0, 1.0, 10.0), Vec3::ZERO);
-    commands.spawn((Camera3d::default(), orbit, transform));
+    let (fly, transform) = FlyCamera::new(Vec3::new(0.0, 1.0, 10.0), Vec3::ZERO);
+    commands.spawn((Camera3d::default(), fly, transform));
 }
 
 fn load_grid() -> Grid<f16> {

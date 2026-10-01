@@ -8,7 +8,7 @@ use vdb_rs::VdbReader;
 use std::{error::Error, fs::File, io::BufReader};
 
 mod camera_controller;
-use camera_controller::{OrbitCamera, OrbitCameraPlugin};
+use camera_controller::{FlyCamera, FlyCameraPlugin};
 
 fn main() -> Result<(), Box<dyn Error>> {
     App::new()
@@ -20,7 +20,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             ..Default::default()
         }))
         .add_plugins(VertexPullingRenderPlugin { outlines: true })
-        .add_plugins(OrbitCameraPlugin)
+        .add_plugins(FlyCameraPlugin)
         .add_systems(Startup, setup)
         .run();
 
@@ -87,6 +87,6 @@ fn setup(mut commands: Commands, mut color_options_map: ResMut<CuboidMaterialMap
         Transform::from_xyz(4.0, 8.0, 4.0),
     ));
 
-    let (orbit, transform) = OrbitCamera::new(Vec3::new(0.0, 1.0, 10.0), Vec3::ZERO);
-    commands.spawn((Camera3d::default(), orbit, transform));
+    let (fly, transform) = FlyCamera::new(Vec3::new(0.0, 1.0, 10.0), Vec3::ZERO);
+    commands.spawn((Camera3d::default(), fly, transform));
 }

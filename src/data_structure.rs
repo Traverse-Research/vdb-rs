@@ -228,9 +228,24 @@ pub enum MetadataValue {
 }
 
 pub trait Node {
-    const DIM: u32 = 1 << Self::LOG_2_DIM;
+    /// Side length of this node, in voxels.
+    ///
+    /// A node subdivides its own extent into `1 << LOG_2_DIM` slots per axis, and each of those
+    /// slots spans `1 << TOTAL` voxels because that is what the child node underneath it covers.
+    /// The side length is therefore `1 << (LOG_2_DIM + TOTAL)`, not `1 << LOG_2_DIM` -- the latter
+    /// counts slots rather than voxels, and only coincides for [`Node3`], where `TOTAL` is 0.
+    ///
+    /// This matches OpenVDB's `DIM = 1 << TOTAL`, keeping in mind that its `TOTAL` is
+    /// `Log2Dim + ChildNodeType::TOTAL` whereas ours is just `ChildNodeType::TOTAL`.
+    const DIM: u32 = 1 << (Self::LOG_2_DIM + Self::TOTAL);
+    /// Number of slots per axis, i.e. the number of children this node can address per axis.
     const LOG_2_DIM: u32;
+    /// `LOG_2_DIM` of the child node, accumulated down to the voxel level.
     const TOTAL: u32;
+
+    /// Number of addressable slots in this node, i.e. the exclusive upper bound on the [`Index`]
+    /// returned by [`Node::local_coord_to_offset`].
+    const NUM_VALUES: u32 = 1 << (3 * Self::LOG_2_DIM);
 
     fn local_coord_to_offset(&self, xyz: LocalCoord) -> Index {
         let index_3d = (xyz.0 & (Self::DIM - 1)) >> Self::TOTAL;
@@ -368,4 +383,148 @@ pub struct ArchiveHeader {
     pub grid_count: u32,
     /// The metadata for the input stream
     pub meta_data: Metadata,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn node3() -> Node3<f32> {
+        Node3 {
+            buffer: Vec::new(),
+            value_mask: BitVec::new(),
+            origin: IVec3::ZERO,
+        }
+    }
+
+    fn node4() -> Node4<f32> {
+        Node4 {
+            child_mask: BitVec::new(),
+            value_mask: BitVec::new(),
+            nodes: HashMap::new(),
+            data: Vec::new(),
+            origin: IVec3::ZERO,
+        }
+    }
+
+    fn node5() -> Node5<f32> {
+        Node5 {
+            child_mask: BitVec::new(),
+            value_mask: BitVec::new(),
+            nodes: HashMap::new(),
+            data: Vec::new(),
+            origin: IVec3::ZERO,
+        }
+    }
+
+    /// Every offset survives a trip out to a global coordinate and back, and the offsets cover
+    /// `0..NUM_VALUES` exactly once.
+    ///
+    /// With the origin at zero, `offset_to_global_coord` yields the lower corner of the voxel
+    /// region that the offset addresses, so feeding it back in has to reproduce the offset. This
+    /// is what the old `DIM = 1 << LOG_2_DIM` broke: the mask discarded the high bits of the
+    /// coordinate that `>> TOTAL` was about to shift down into place.
+    fn assert_offsets_round_trip<N: Node>(node: &N) {
+        let mut seen = vec![false; N::NUM_VALUES as usize];
+
+        for offset in 0..N::NUM_VALUES {
+            let global = node.offset_to_global_coord(Index(offset)).0;
+            assert!(
+                global.min_element() >= 0,
+                "offset {offset} produced a negative coord {global:?}"
+            );
+
+            let round_tripped = node.local_coord_to_offset(LocalCoord(global.as_uvec3())).0;
+            assert_eq!(
+                round_tripped, offset,
+                "offset {offset} round-tripped to {round_tripped} via {global:?}"
+            );
+
+            assert!(!seen[offset as usize], "offset {offset} produced twice");
+            seen[offset as usize] = true;
+        }
+
+        assert!(
+            seen.into_iter().all(|s| s),
+            "offsets do not cover 0..{}",
+            N::NUM_VALUES
+        );
+    }
+
+    #[test]
+    fn offsets_round_trip_through_global_coords() {
+        assert_offsets_round_trip(&node3());
+        assert_offsets_round_trip(&node4());
+        assert_offsets_round_trip(&node5());
+    }
+
+    /// Each offset addresses a `(1 << TOTAL)` cube of voxels, so every coordinate inside that cube
+    /// has to resolve back to the same offset -- not just the lower corner.
+    fn assert_child_extent_is_uniform<N: Node>(node: &N) {
+        let child_dim = 1 << N::TOTAL;
+
+        for offset in 0..N::NUM_VALUES {
+            let corner = node.offset_to_global_coord(Index(offset)).0.as_uvec3();
+
+            // The interior is `child_dim^3` voxels, which is far too much to walk for `Node5`, so
+            // check the corners of the cube plus its centre.
+            for dx in [0, child_dim - 1] {
+                for dy in [0, child_dim - 1] {
+                    for dz in [0, child_dim - 1] {
+                        let inside = corner + glam::UVec3::new(dx, dy, dz);
+                        assert_eq!(
+                            node.local_coord_to_offset(LocalCoord(inside)).0,
+                            offset,
+                            "{inside:?} inside child {offset} resolved elsewhere"
+                        );
+                    }
+                }
+            }
+
+            let centre = corner + glam::UVec3::splat(child_dim / 2);
+            assert_eq!(node.local_coord_to_offset(LocalCoord(centre)).0, offset);
+        }
+    }
+
+    #[test]
+    fn coords_within_a_child_share_its_offset() {
+        assert_child_extent_is_uniform(&node3());
+        assert_child_extent_is_uniform(&node4());
+        assert_child_extent_is_uniform(&node5());
+    }
+
+    /// Coordinates outside the node wrap into it by the `DIM - 1` mask rather than escaping the
+    /// offset range.
+    fn assert_wraps_out_of_range<N: Node>(node: &N) {
+        for offset in 0..N::NUM_VALUES {
+            let corner = node.offset_to_global_coord(Index(offset)).0.as_uvec3();
+            let wrapped = corner + glam::UVec3::new(N::DIM, 3 * N::DIM, 7 * N::DIM);
+
+            assert_eq!(
+                node.local_coord_to_offset(LocalCoord(wrapped)).0,
+                offset,
+                "{wrapped:?} did not wrap back onto offset {offset}"
+            );
+        }
+    }
+
+    #[test]
+    fn out_of_range_coords_wrap_into_the_node() {
+        assert_wraps_out_of_range(&node3());
+        assert_wraps_out_of_range(&node4());
+        assert_wraps_out_of_range(&node5());
+    }
+
+    /// Guards the constants themselves, since `DIM` is what regressed. The voxel extents are the
+    /// 8/128/4096 of OpenVDB's `LeafNode<_, 3>`, `InternalNode<_, 4>` and `InternalNode<_, 5>`.
+    #[test]
+    fn node_extents_match_openvdb() {
+        assert_eq!(<Node3<f32> as Node>::DIM, 8);
+        assert_eq!(<Node4<f32> as Node>::DIM, 128);
+        assert_eq!(<Node5<f32> as Node>::DIM, 4096);
+
+        assert_eq!(<Node3<f32> as Node>::NUM_VALUES, 512);
+        assert_eq!(<Node4<f32> as Node>::NUM_VALUES, 4096);
+        assert_eq!(<Node5<f32> as Node>::NUM_VALUES, 32768);
+    }
 }

@@ -229,9 +229,12 @@ impl<R: Read + Seek> VdbReader<R> {
         gd: &GridDescriptor,
         count: usize,
     ) -> Result<Vec<T>, ParseError> {
-        if count == 0 {
-            return Ok(Vec::new());
-        }
+        // NOTE: Deliberately no `count == 0` early-out here. OpenVDB's
+        // `readData()` -> `bloscFromStream()`/`unzipFromStream()` always consume
+        // the block's `i64` size header (and its payload) regardless of `count`,
+        // so returning early would leave the reader positioned mid-block and
+        // desync every subsequent read. The only place OpenVDB skips the stream
+        // is the half-float branch in `read_compressed()`.
         Ok(if gd.compression.contains(Compression::BLOSC) {
             let num_compressed_bytes = reader.read_i64::<LittleEndian>()?;
             let compressed_count = num_compressed_bytes / std::mem::size_of::<T>() as i64;
@@ -355,7 +358,22 @@ impl<R: Read + Seek> VdbReader<R> {
         };
 
         // jb-todo: we may need to extend this to vector types
-        let data = if gd.meta_data.is_half_float()
+        let data = if gd.meta_data.is_half_float() && count == 0 {
+            // OpenVDB only skips the stream for half-float grids, in
+            // `HalfReader</*IsReal=*/true, T>::read()`, which bails on `count < 1`
+            // before reading anything. Its counterpart `HalfWriter::write()` bails
+            // on the same condition, and neither looks at `compression` first, so a
+            // zero-count block of a half-float grid has nothing on disk at all.
+            //
+            // That is a property of the grid, not of the type we are reading into,
+            // so it has to be checked before dispatching on `T`: reading such a
+            // grid as `f16` goes through the plain branch below, and
+            // `read_compressed_data()` would otherwise consume an `i64` block
+            // header that was never written and desync the stream. Every other
+            // path goes through `readData()`, which always consumes a block -- see
+            // the comment in `read_compressed_data()`.
+            Vec::new()
+        } else if gd.meta_data.is_half_float()
             && std::any::TypeId::of::<T>() == std::any::TypeId::of::<f32>()
         {
             let data = Self::read_compressed_data::<f16>(reader, archive, gd, count)?;

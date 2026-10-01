@@ -2,6 +2,8 @@
 name = "vdb-rs"
 version = "0.6.0"
 edition = "2021"
+# `examples/camera_controller.rs` is a shared module, not an example of its own.
+autoexamples = false
 authors = ["Traverse-Research <support@traverseresearch.nl>"]
 description = "OpenVDB manipulation library."
 license = "MIT"
@@ -27,13 +29,27 @@ blosc-src = { version = "0.3.0", features = ["lz4"] }
 bytemuck = { version = "1.13", features = ["extern_crate_alloc"] }
 byteorder = "1.4"
 flate2 = "1"
-glam = ">=0.18,<=0.24"
+glam = ">=0.19,<=0.33"
 half = { version = "2.2.1", features = ["bytemuck"] }
 log = "0.4"
 thiserror = "1"
 
 [dev-dependencies]
-bevy = { version = "0.11", default-features = false, features = ["bevy_pbr"] }
-bevy-aabb-instancing = "0.10"
-bevy_egui = "0.22"
-smooth-bevy-cameras = "0.9"
+# `bevy-aabb-instancing` has no release supporting bevy 0.19 yet; track the branch that upgrades
+# it (ForesightMiningSoftwareCorporation/bevy_aabb_instancing#27) until that lands and is
+# published.  Dev-dependencies are stripped when publishing, so this does not leak to consumers.
+bevy-aabb-instancing = { git = "https://github.com/MarijnS95/bevy_aabb_instancing", branch = "bevy-0.13" }
+bevy_egui = "0.42"
+
+[dev-dependencies.bevy]
+version = "0.19"
+default-features = false
+features = ["bevy_pbr", "bevy_window", "bevy_winit", "x11", "tonemapping_luts"]
+
+[[example]]
+name = "bevy"
+path = "examples/bevy.rs"
+
+[[example]]
+name = "slicer"
+path = "examples/slicer.rs"

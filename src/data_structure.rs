@@ -219,7 +219,7 @@ impl Metadata {
 #[derive(Debug, Clone, PartialEq)]
 pub enum MetadataValue {
     String(String),
-    Vec3i(glam::IVec3),
+    Vec3i(IVec3),
     I32(i32),
     I64(i64),
     Float(f32),
@@ -233,11 +233,8 @@ pub trait Node {
     const TOTAL: u32;
 
     fn local_coord_to_offset(&self, xyz: LocalCoord) -> Index {
-        Index(
-            (((xyz.0[0] & (Self::DIM - 1)) >> Self::TOTAL) << (2 * Self::LOG_2_DIM))
-                + (((xyz.0[1] & (Self::DIM - 1)) >> Self::TOTAL) << Self::LOG_2_DIM)
-                + ((xyz.0[2] & (Self::DIM - 1)) >> Self::TOTAL),
-        )
+        let index_3d = (xyz.0 & (Self::DIM - 1)) >> Self::TOTAL;
+        Index((index_3d.x << (2 * Self::LOG_2_DIM)) + (index_3d.y << Self::LOG_2_DIM) + index_3d.z)
     }
 
     fn offset_to_local_coord(&self, offset: Index) -> LocalCoord {

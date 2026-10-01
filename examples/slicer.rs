@@ -1,18 +1,17 @@
-use bevy::{prelude::*, render::primitives::Aabb};
+use bevy::{camera::primitives::Aabb, prelude::*};
 use bevy_aabb_instancing::{
     Cuboid, CuboidMaterial, CuboidMaterialId, CuboidMaterialMap, Cuboids, ScalarHueOptions,
     VertexPullingRenderPlugin, COLOR_MODE_SCALAR_HUE,
 };
-use bevy_egui::{egui, EguiContexts, EguiPlugin};
+use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiPrimaryContextPass};
 use glam::vec3;
 use half::f16;
-use smooth_bevy_cameras::{
-    controllers::orbit::{OrbitCameraBundle, OrbitCameraController, OrbitCameraPlugin},
-    LookTransformPlugin,
-};
 use vdb_rs::{Grid, Map, VdbLevel, VdbReader};
 
 use std::{error::Error, fs::File, io::BufReader};
+
+mod camera_controller;
+use camera_controller::{OrbitCamera, OrbitCameraPlugin};
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 enum SliceAxis {
@@ -64,11 +63,12 @@ fn main() -> Result<(), Box<dyn Error>> {
             ..Default::default()
         }))
         .add_plugins(VertexPullingRenderPlugin { outlines: true })
-        .add_plugins(LookTransformPlugin)
-        .add_plugins(OrbitCameraPlugin::default())
+        .add_plugins(OrbitCameraPlugin)
         .add_systems(Startup, setup)
-        .add_plugins(EguiPlugin)
-        .add_systems(Update, settings_ui)
+        .add_plugins(EguiPlugin::default())
+        // egui's own schedule: its context has no fonts until the pass runs, so a UI system in
+        // `Update` would panic on the first frame.
+        .add_systems(EguiPrimaryContextPass, settings_ui)
         .add_systems(Update, rebuild_model)
         .run();
 
@@ -76,7 +76,11 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 fn settings_ui(mut contexts: EguiContexts, mut settings: ResMut<RenderSettings>) {
-    egui::Window::new("Settings").show(contexts.ctx_mut(), |ui| {
+    let Ok(ctx) = contexts.ctx_mut() else {
+        return;
+    };
+    let ctx = ctx.clone();
+    egui::Window::new("Settings").show(&ctx, |ui| {
         egui::ComboBox::from_label("Render")
             .selected_text(format!("{:?}", settings.render_mode))
             .show_ui(ui, |ui| {
@@ -130,9 +134,9 @@ fn rebuild_model(
     existing_voxels: Query<Entity, With<Aabb>>,
 ) {
     if settings.dirty {
-        existing_voxels.for_each(|entity| {
+        for entity in existing_voxels.iter() {
             commands.entity(entity).despawn();
-        });
+        }
 
         let translation = match model_data.grid.transform {
             Map::ScaleTranslateMap { translation, .. } => translation.as_vec3(),
@@ -181,7 +185,9 @@ fn rebuild_model(
         let cuboids = Cuboids::new(instances);
 
         let aabb = cuboids.aabb();
-        commands.spawn(SpatialBundle::default()).insert((
+        commands.spawn((
+            Transform::default(),
+            Visibility::default(),
             cuboids,
             aabb,
             model_data.color_options_id,
@@ -217,23 +223,16 @@ fn setup(mut commands: Commands, mut color_options_map: ResMut<CuboidMaterialMap
         }),
         grid,
     });
-    commands.spawn(PointLightBundle {
-        point_light: PointLight {
+    commands.spawn((
+        PointLight {
             intensity: 1500.0,
-            shadows_enabled: true,
+            shadow_maps_enabled: true,
             ..default()
         },
-        transform: Transform::from_xyz(4.0, 8.0, 4.0),
-        ..default()
-    });
-    commands
-        .spawn(Camera3dBundle::default())
-        .insert(OrbitCameraBundle::new(
-            OrbitCameraController::default(),
-            Vec3::new(0.0, 1.0, 10.0),
-            Vec3::ZERO,
-            Vec3::Y,
-        ));
+        Transform::from_xyz(4.0, 8.0, 4.0),
+    ));
+    let (orbit, transform) = OrbitCamera::new(Vec3::new(0.0, 1.0, 10.0), Vec3::ZERO);
+    commands.spawn((Camera3d::default(), orbit, transform));
 }
 
 fn load_grid() -> Grid<f16> {

@@ -3,10 +3,12 @@ use bevy_aabb_instancing::{
     Cuboid, CuboidMaterial, CuboidMaterialMap, Cuboids, ScalarHueOptions,
     VertexPullingRenderPlugin, COLOR_MODE_SCALAR_HUE,
 };
-use smooth_bevy_cameras::{controllers::unreal::*, LookTransformPlugin};
 use vdb_rs::VdbReader;
 
 use std::{error::Error, fs::File, io::BufReader};
+
+mod camera_controller;
+use camera_controller::{OrbitCamera, OrbitCameraPlugin};
 
 fn main() -> Result<(), Box<dyn Error>> {
     App::new()
@@ -18,8 +20,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             ..Default::default()
         }))
         .add_plugins(VertexPullingRenderPlugin { outlines: true })
-        .add_plugins(LookTransformPlugin)
-        .add_plugins(UnrealCameraPlugin::default())
+        .add_plugins(OrbitCameraPlugin)
         .add_systems(Startup, setup)
         .run();
 
@@ -69,26 +70,23 @@ fn setup(mut commands: Commands, mut color_options_map: ResMut<CuboidMaterialMap
         .collect();
     let cuboids = Cuboids::new(instances);
     let aabb = cuboids.aabb();
-    commands
-        .spawn(SpatialBundle::default())
-        .insert((cuboids, aabb, color_options_id));
+    commands.spawn((
+        Transform::default(),
+        Visibility::default(),
+        cuboids,
+        aabb,
+        color_options_id,
+    ));
 
-    commands.spawn(PointLightBundle {
-        point_light: PointLight {
+    commands.spawn((
+        PointLight {
             intensity: 1500.0,
-            shadows_enabled: true,
+            shadow_maps_enabled: true,
             ..default()
         },
-        transform: Transform::from_xyz(4.0, 8.0, 4.0),
-        ..default()
-    });
+        Transform::from_xyz(4.0, 8.0, 4.0),
+    ));
 
-    commands
-        .spawn(Camera3dBundle::default())
-        .insert(UnrealCameraBundle::new(
-            UnrealCameraController::default(),
-            Vec3::new(0.0, 1.0, 10.0),
-            Vec3::ZERO,
-            Vec3::Y,
-        ));
+    let (orbit, transform) = OrbitCamera::new(Vec3::new(0.0, 1.0, 10.0), Vec3::ZERO);
+    commands.spawn((Camera3d::default(), orbit, transform));
 }
